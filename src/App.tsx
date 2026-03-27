@@ -489,7 +489,7 @@ const App: React.FC = () => {
 // Sub-components
 // ---------------------------------------------------------------------------
 interface NavItemProps {
-  id: TabName; icon: React.FC<{ size?: number }>; label: string;
+  id: TabName; icon: React.ElementType<any>; label: string;
   active: TabName; onClick: (id: TabName) => void; open: boolean;
 }
 
@@ -504,7 +504,7 @@ const NavItem: React.FC<NavItemProps> = ({ id, icon: Icon, label, active, onClic
 );
 
 interface StatBoxProps {
-  title: string; value: string; icon: React.FC<{ size?: number }>; color: string;
+  title: string; value: string; icon: React.ElementType<any>; color: string;
 }
 
 const StatBox: React.FC<StatBoxProps> = ({ title, value, icon: Icon, color }) => (
