@@ -211,7 +211,7 @@ const App: React.FC = () => {
   // ── CRUD ──
   const handleSave = () => {
     const colMap: Record<ModalType, string> = {
-      customer: 'customers', vehicle: 'vehicles', staff: 'staff', service: 'services',
+      customer: 'customers', vehicle: 'vehicles', staff: 'staff', service: 'services', quote: 'quotes',
     };
     const colName = colMap[modalType];
     const base = { ...formData, createdAt: new Date().toISOString() };
@@ -244,7 +244,7 @@ const App: React.FC = () => {
     if (!isAdmin) return;
     const colMap: Record<TabName, string> = {
       services: 'services', staff: 'staff', vehicles: 'vehicles',
-      customers: 'customers', dashboard: '', reports: '',
+      customers: 'customers', dashboard: '', reports: '', quotes: '',
     };
     const col = colMap[activeTab];
     if (!col) return;
