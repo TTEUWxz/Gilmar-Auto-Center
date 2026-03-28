@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
   LayoutDashboard, Users, Car, Wrench, Plus, Search,
   Trash2, DollarSign, Loader2, BarChart3,
-  UserCircle, Briefcase, Menu, X
+  UserCircle, Briefcase, Menu, X, Lock, Eye, EyeOff, KeyRound, LogOut,
+  CheckCircle, Clock, CreditCard, FileText, PlusCircle, MinusCircle, Printer,
+  ThumbsUp, ThumbsDown
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -16,11 +18,9 @@ function getCol<T>(name: string): T[] {
     return JSON.parse(localStorage.getItem(`autopro_${name}`) ?? '[]') as T[];
   } catch { return []; }
 }
-
 function saveCol<T>(name: string, data: T[]) {
   localStorage.setItem(`autopro_${name}`, JSON.stringify(data));
 }
-
 function addItem<T extends object>(name: string, item: T): T & { id: string } {
   const col = getCol<T & { id: string }>(name);
   const newItem = { ...item, id: genId() };
@@ -28,11 +28,22 @@ function addItem<T extends object>(name: string, item: T): T & { id: string } {
   saveCol(name, col);
   return newItem;
 }
-
 function deleteItem(name: string, id: string) {
   const col = getCol<{ id: string }>(name).filter(i => i.id !== id);
   saveCol(name, col);
 }
+
+// ---------------------------------------------------------------------------
+// Auth helpers
+// ---------------------------------------------------------------------------
+const AUTH_KEY  = 'autopro_auth';
+const PWD_KEY   = 'autopro_admin_pwd';
+const DEFAULT_PWD = 'admin123';
+
+const getStoredPwd  = () => localStorage.getItem(PWD_KEY) || DEFAULT_PWD;
+const isAuthValid   = () => sessionStorage.getItem(AUTH_KEY) === 'true';
+const setAuthValid  = (v: boolean) =>
+  v ? sessionStorage.setItem(AUTH_KEY, 'true') : sessionStorage.removeItem(AUTH_KEY);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -45,27 +56,31 @@ interface Service  extends BaseItem {
   description: string; value: number; paymentMethod: string;
   staffName: string; status: string; date: string;
 }
+interface QuoteItem { description: string; qty: number; unitValue: number; }
+interface Quote extends BaseItem {
+  clientName: string; vehicleModel: string; vehiclePlate: string;
+  items: QuoteItem[]; total: number;
+  status: 'Pendente' | 'Aprovado' | 'Recusado';
+}
 
-type TabName    = 'dashboard' | 'services' | 'vehicles' | 'customers' | 'staff' | 'reports';
-type ModalType  = 'service' | 'vehicle' | 'customer' | 'staff';
+type TabName   = 'dashboard' | 'services' | 'vehicles' | 'customers' | 'staff' | 'reports' | 'quotes';
+type ModalType = 'service' | 'vehicle' | 'customer' | 'staff' | 'quote';
 
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
 const getModalType = (tab: TabName): ModalType => {
   const map: Partial<Record<TabName, ModalType>> = {
-    staff: 'staff', vehicles: 'vehicle', customers: 'customer',
+    staff: 'staff', vehicles: 'vehicle', customers: 'customer', quotes: 'quote',
   };
   return map[tab] ?? 'service';
 };
-
 const getAddLabel = (tab: TabName) => {
   const map: Partial<Record<TabName, string>> = {
-    staff: 'Novo Mecânico', vehicles: 'Novo Veículo', customers: 'Novo Cliente',
+    staff: 'Novo Mecânico', vehicles: 'Novo Veículo', customers: 'Novo Cliente', quotes: 'Novo Orçamento',
   };
   return map[tab] ?? 'Nova OS';
 };
-
 const formatBRL = (val?: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val ?? 0);
 
@@ -73,15 +88,27 @@ const formatBRL = (val?: number) =>
 // App
 // ---------------------------------------------------------------------------
 const App: React.FC = () => {
-  const [role, setRole]             = useState<'admin' | 'funcionario'>('admin');
-  const [activeTab, setActiveTab]   = useState<TabName>('dashboard');
-  const [isSidebarOpen, setSidebarOpen] = useState(false);
-  const [loading, setLoading]       = useState(true);
+  // ── Auth state ──
+  const [isAuthenticated, setIsAuthenticated] = useState(isAuthValid);
+  const [showLoginModal,  setShowLoginModal]   = useState(false);
+  const [showChangePwd,   setShowChangePwd]    = useState(false);
+  const [pwdInput,        setPwdInput]         = useState('');
+  const [pwdVisible,      setPwdVisible]       = useState(false);
+  const [pwdError,        setPwdError]         = useState('');
+  const [newPwd,          setNewPwd]           = useState('');
+  const [confirmPwd,      setConfirmPwd]       = useState('');
+  const [newPwdVisible,   setNewPwdVisible]    = useState(false);
 
-  const [customers, setCustomers]   = useState<Customer[]>([]);
-  const [vehicles,  setVehicles]    = useState<Vehicle[]>([]);
-  const [services,  setServices]    = useState<Service[]>([]);
-  const [staff,     setStaff]       = useState<Staff[]>([]);
+  // ── App state ──
+  const [role, setRole]           = useState<'admin' | 'funcionario'>(isAuthValid() ? 'admin' : 'funcionario');
+  const [activeTab, setActiveTab] = useState<TabName>('dashboard');
+  const [isSidebarOpen, setSidebarOpen] = useState(false);
+  const [loading, setLoading]     = useState(true);
+
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [vehicles,  setVehicles]  = useState<Vehicle[]>([]);
+  const [services,  setServices]  = useState<Service[]>([]);
+  const [staff,     setStaff]     = useState<Staff[]>([]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal,  setShowModal]  = useState(false);
@@ -90,22 +117,76 @@ const App: React.FC = () => {
     paymentMethod: 'Dinheiro', staffName: '',
   });
 
+  // ── Entrega de serviço ──
+  const [showDeliveryModal,   setShowDeliveryModal]   = useState(false);
+  const [deliveryServiceId,   setDeliveryServiceId]   = useState<string | null>(null);
+  const [deliveryPayment,     setDeliveryPayment]     = useState('Dinheiro');
+
+  // ── Orçamentos ──
+  const [quotes,        setQuotes]        = useState<Quote[]>([]);
+  const [quoteClient,   setQuoteClient]   = useState('');
+  const [quoteVehicle,  setQuoteVehicle]  = useState('');
+  const [quotePlate,    setQuotePlate]    = useState('');
+  const [quoteItems,    setQuoteItems]    = useState<QuoteItem[]>([{ description: '', qty: 1, unitValue: 0 }]);
+
   useEffect(() => {
     setCustomers(getCol<Customer>('customers'));
     setVehicles(getCol<Vehicle>('vehicles'));
     setServices(getCol<Service>('services'));
     setStaff(getCol<Staff>('staff'));
+    setQuotes(getCol<Quote>('quotes'));
     setLoading(false);
   }, []);
 
-  // Fechar sidebar ao trocar de aba no mobile
+  const isAdmin = role === 'admin';
+
+  // ── Auth actions ──
+  const handleAdminLogin = () => {
+    if (pwdInput === getStoredPwd()) {
+      setIsAuthenticated(true);
+      setAuthValid(true);
+      setRole('admin');
+      setPwdInput('');
+      setPwdError('');
+      setPwdVisible(false);
+      setShowLoginModal(false);
+    } else {
+      setPwdError('Senha incorreta. Tente novamente.');
+      setPwdInput('');
+    }
+  };
+
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+    setAuthValid(false);
+    setRole('funcionario');
+    if (['customers', 'reports', 'staff'].includes(activeTab)) setActiveTab('dashboard');
+    setSidebarOpen(false);
+  };
+
+  const handleChangePassword = () => {
+    if (newPwd.length < 4) {
+      setPwdError('A senha deve ter pelo menos 4 caracteres.');
+      return;
+    }
+    if (newPwd !== confirmPwd) {
+      setPwdError('As senhas não coincidem.');
+      return;
+    }
+    localStorage.setItem(PWD_KEY, newPwd);
+    setNewPwd('');
+    setConfirmPwd('');
+    setPwdError('');
+    setShowChangePwd(false);
+    alert('Senha alterada com sucesso!');
+  };
+
   const handleTabChange = (tab: TabName) => {
     setActiveTab(tab);
     setSidebarOpen(false);
   };
 
-  const isAdmin = role === 'admin';
-
+  // ── Reports ──
   const reportData = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
     const calcStats = (list: Service[]) => {
@@ -127,13 +208,13 @@ const App: React.FC = () => {
     };
   }, [services]);
 
+  // ── CRUD ──
   const handleSave = () => {
     const colMap: Record<ModalType, string> = {
       customer: 'customers', vehicle: 'vehicles', staff: 'staff', service: 'services',
     };
     const colName = colMap[modalType];
     const base = { ...formData, createdAt: new Date().toISOString() };
-
     if (modalType === 'service') {
       const item = addItem<Omit<Service, 'id'>>(colName, {
         ...base,
@@ -155,7 +236,6 @@ const App: React.FC = () => {
       const item = addItem(colName, { name: formData.name ?? '', phone: formData.phone ?? '', createdAt: base.createdAt });
       setCustomers(prev => [...prev, item as Customer]);
     }
-
     setShowModal(false);
     setFormData({ paymentMethod: 'Dinheiro', staffName: '' });
   };
@@ -175,35 +255,139 @@ const App: React.FC = () => {
     if (activeTab === 'customers') setCustomers(prev => prev.filter(i => i.id !== id));
   };
 
+  // ── Entregar serviço (atualiza status + pagamento) ──
+  const openDelivery = (id: string) => {
+    setDeliveryServiceId(id);
+    setDeliveryPayment('Dinheiro');
+    setShowDeliveryModal(true);
+  };
+
+  const confirmDelivery = () => {
+    if (!deliveryServiceId) return;
+    const updated = services.map(s =>
+      s.id === deliveryServiceId
+        ? { ...s, status: 'Entregue', paymentMethod: deliveryPayment }
+        : s
+    );
+    setServices(updated);
+    saveCol('services', updated);
+    setShowDeliveryModal(false);
+    setDeliveryServiceId(null);
+  };
+
+  // ── Orçamento: salvar ──
+  const handleSaveQuote = () => {
+    const validItems = quoteItems.filter(i => i.description.trim() !== '');
+    if (!quoteClient.trim() || validItems.length === 0) return;
+    const total = validItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0);
+    const newQuote = addItem<Omit<Quote, 'id'>>('quotes', {
+      clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate,
+      items: validItems, total, status: 'Pendente', createdAt: new Date().toISOString(),
+    });
+    setQuotes(prev => [...prev, newQuote as Quote]);
+    setShowModal(false);
+    setQuoteClient(''); setQuoteVehicle(''); setQuotePlate('');
+    setQuoteItems([{ description: '', qty: 1, unitValue: 0 }]);
+  };
+
+  // ── Orçamento: mudar status ──
+  const changeQuoteStatus = (id: string, status: Quote['status']) => {
+    const updated = quotes.map(q => q.id === id ? { ...q, status } : q);
+    setQuotes(updated);
+    saveCol('quotes', updated);
+  };
+
+  // ── Orçamento: deletar ──
+  const deleteQuote = (id: string) => {
+    const updated = quotes.filter(q => q.id !== id);
+    setQuotes(updated);
+    saveCol('quotes', updated);
+  };
+
+  // ── Orçamento: gerar PDF (abre janela de impressão) ──
+  const printQuote = (quote: Quote) => {
+    const rows = quote.items.map(i => `
+      <tr>
+        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9">${i.description}</td>
+        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:center">${i.qty}</td>
+        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:right">${formatBRL(i.unitValue)}</td>
+        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700">${formatBRL(i.qty * i.unitValue)}</td>
+      </tr>`).join('');
+    const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+      <title>Orçamento – Gilmar Auto Center</title>
+      <style>
+        *{margin:0;padding:0;box-sizing:border-box} body{font-family:Arial,sans-serif;color:#1e293b;padding:40px;font-size:13px}
+        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:36px;padding-bottom:24px;border-bottom:3px solid #1B3155}
+        .logo-text{line-height:1.1} .logo-text .brand{font-size:28px;font-weight:900;letter-spacing:2px;color:#1B3155} .logo-text .sub{font-size:13px;font-weight:700;letter-spacing:8px;color:#1B3155} .logo-text .tagline{font-size:10px;font-weight:400;color:#64748b;margin-top:3px}
+        .info-block{background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:20px}
+        .info-block h3{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#64748b;margin-bottom:10px}
+        .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+        .info-row label{font-size:10px;color:#94a3b8;display:block} .info-row p{font-weight:700;font-size:14px}
+        table{width:100%;border-collapse:collapse;margin-top:8px}
+        thead tr{background:#1B3155;color:white} thead th{padding:12px 8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px}
+        thead th:nth-child(2){text-align:center} thead th:nth-child(3),thead th:nth-child(4){text-align:right}
+        .total-row{background:#eef2ff} .total-row td{padding:14px 8px;font-size:15px;font-weight:900;color:#1B3155;text-align:right}
+        .total-row td:first-child{text-align:left;color:#1e293b}
+        .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:11px;color:#94a3b8}
+        @media print{body{padding:20px}}
+      </style></head><body>
+      <div class="header">
+        <div class="logo-text">
+          <div class="brand">GILMAR</div>
+          <div class="sub">AUTO CENTER</div>
+          <div class="tagline">(21) 96421-6563 / 97535-6318</div>
+        </div>
+        <div style="text-align:right">
+          <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Orçamento Nº</p>
+          <p style="font-size:22px;font-weight:900;color:#2563eb">#${quote.id.slice(-6).toUpperCase()}</p>
+          <p style="color:#64748b;margin-top:4px">${new Date(quote.createdAt).toLocaleDateString('pt-BR')}</p>
+        </div>
+      </div>
+      <div class="info-block">
+        <h3>Dados do Cliente &amp; Veículo</h3>
+        <div class="info-grid">
+          <div class="info-row"><label>Cliente</label><p>${quote.clientName}</p></div>
+          <div class="info-row"><label>Veículo</label><p>${quote.vehicleModel || '—'}</p></div>
+          <div class="info-row"><label>Placa</label><p>${quote.vehiclePlate || '—'}</p></div>
+        </div>
+      </div>
+      <table><thead><tr>
+        <th>Descrição do Serviço</th><th style="text-align:center">Qtd.</th>
+        <th style="text-align:right">Valor Unit.</th><th style="text-align:right">Total</th>
+      </tr></thead><tbody>
+        ${rows}
+        <tr class="total-row">
+          <td colspan="3">Total do Orçamento</td>
+          <td>${formatBRL(quote.total)}</td>
+        </tr>
+      </tbody></table>
+      <div class="footer">
+        <span>Gilmar Auto Center – (21) 96421-6563 / 97535-6318</span>
+        <span>Gerado em ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'long' })}</span>
+      </div>
+      <script>window.onload=()=>{window.print()}<\/script></body></html>`;
+    const win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); }
+  };
+
   const getTableData = (): BaseItem[] => {
     if (activeTab === 'services')  return services;
     if (activeTab === 'staff')     return staff;
     if (activeTab === 'customers') return customers;
     return vehicles;
   };
-
   const getTableHeaders = () => {
     if (activeTab === 'staff')     return ['Profissional', 'Especialidade', 'Admitido em'];
     if (activeTab === 'vehicles')  return ['Modelo', 'Placa', 'Cadastrado em'];
     if (activeTab === 'customers') return ['Cliente', 'Telefone', 'Cadastrado em'];
-    return ['Serviço', 'Profissional', 'Pagamento'];
+    return ['Serviço', 'Profissional', 'Status'];
   };
-
   const getTableCells = (item: BaseItem) => {
-    if (activeTab === 'staff') {
-      const s = item as Staff;
-      return [s.name, s.specialty || '-', s.createdAt?.substring(0, 10) || '-'];
-    }
-    if (activeTab === 'vehicles') {
-      const v = item as Vehicle;
-      return [v.model, v.plate || '-', v.createdAt?.substring(0, 10) || '-'];
-    }
-    if (activeTab === 'customers') {
-      const c = item as Customer;
-      return [c.name, c.phone || '-', c.createdAt?.substring(0, 10) || '-'];
-    }
+    if (activeTab === 'staff')     { const s = item as Staff;     return [s.name, s.specialty || '-', s.createdAt?.substring(0,10) || '-']; }
+    if (activeTab === 'vehicles')  { const v = item as Vehicle;   return [v.model, v.plate || '-', v.createdAt?.substring(0,10) || '-']; }
+    if (activeTab === 'customers') { const c = item as Customer;  return [c.name, c.phone || '-', c.createdAt?.substring(0,10) || '-']; }
     const sv = item as Service;
-    return [sv.description, sv.staffName || 'Nenhum', sv.paymentMethod || '-'];
+    return [sv.description, sv.staffName || 'Nenhum', sv.status || 'Pendente'];
   };
 
   if (loading) return (
@@ -220,10 +404,7 @@ const App: React.FC = () => {
 
       {/* ── Overlay mobile ── */}
       {isSidebarOpen && (
-        <div
-          className="fixed inset-0 bg-black/50 z-40 md:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
+        <div className="fixed inset-0 bg-black/50 z-40 md:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
       {/* ── Sidebar ── */}
@@ -234,13 +415,8 @@ const App: React.FC = () => {
         md:relative md:translate-x-0 md:z-auto
       `}>
         {/* Logo */}
-        <div className="p-5 flex items-center justify-between border-b border-white/5">
-          <div className="flex items-center space-x-3">
-            <div className="bg-blue-600 p-2 rounded-lg flex-shrink-0"><Wrench size={18} /></div>
-            <h1 className="text-lg font-black tracking-tight uppercase">
-              Auto<span className="text-blue-500">Pro</span>
-            </h1>
-          </div>
+        <div className="px-5 py-4 flex items-center justify-between border-b border-white/5">
+          <img src="/logo.svg" alt="Gilmar Auto Center" className="h-12 w-auto" />
           <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-1">
             <X size={20} />
           </button>
@@ -250,27 +426,55 @@ const App: React.FC = () => {
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
           <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard"  active={activeTab} onClick={handleTabChange} />
           <NavItem id="services"  icon={Wrench}          label="Serviços"   active={activeTab} onClick={handleTabChange} />
+          <NavItem id="quotes"    icon={FileText}        label="Orçamentos" active={activeTab} onClick={handleTabChange} />
           <NavItem id="vehicles"  icon={Car}             label="Veículos"   active={activeTab} onClick={handleTabChange} />
           {isAdmin && <NavItem id="staff"     icon={Briefcase} label="Equipa"     active={activeTab} onClick={handleTabChange} />}
           {isAdmin && <NavItem id="customers" icon={Users}     label="Clientes"   active={activeTab} onClick={handleTabChange} />}
           {isAdmin && <NavItem id="reports"   icon={BarChart3} label="Relatórios" active={activeTab} onClick={handleTabChange} />}
         </nav>
 
-        {/* Switcher ADM / FUNC */}
-        <div className="p-4 bg-white/5 m-4 rounded-xl border border-white/5">
-          <p className="text-[9px] text-slate-500 font-bold uppercase tracking-widest mb-2 text-center">Perfil</p>
-          <div className="flex bg-slate-950 p-1 rounded-lg">
-            <button
-              onClick={() => setRole('admin')}
-              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors ${role === 'admin' ? 'bg-blue-600 text-white' : 'text-slate-500'}`}
-            >ADM</button>
+        {/* ── Auth switcher ── */}
+        <div className="p-4 m-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
+          {/* Role badge */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isAdmin
+                ? <span className="flex items-center gap-1.5 text-[10px] font-black text-blue-400 uppercase tracking-wider"><Lock size={11}/> Administrador</span>
+                : <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider">Funcionário</span>
+              }
+            </div>
+            {isAdmin && (
+              <button
+                onClick={() => { setPwdError(''); setNewPwd(''); setConfirmPwd(''); setShowChangePwd(true); setSidebarOpen(false); }}
+                className="text-slate-500 hover:text-slate-300 transition-colors"
+                title="Alterar senha"
+              >
+                <KeyRound size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Switcher buttons */}
+          <div className="flex bg-slate-950 p-1 rounded-lg gap-1">
             <button
               onClick={() => {
-                setRole('funcionario');
-                if (['customers', 'reports', 'staff'].includes(activeTab)) handleTabChange('dashboard');
+                if (!isAuthenticated) {
+                  setPwdInput(''); setPwdError(''); setPwdVisible(false);
+                  setShowLoginModal(true); setSidebarOpen(false);
+                }
               }}
-              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors ${role === 'funcionario' ? 'bg-amber-600 text-white' : 'text-slate-500'}`}
-            >FUNC</button>
+              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors flex items-center justify-center gap-1
+                ${role === 'admin' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {role !== 'admin' && <Lock size={9} />} ADM
+            </button>
+            <button
+              onClick={isAdmin ? handleLogout : undefined}
+              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors flex items-center justify-center gap-1
+                ${role === 'funcionario' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              {role === 'admin' && <LogOut size={9} />} FUNC
+            </button>
           </div>
         </div>
       </aside>
@@ -282,15 +486,11 @@ const App: React.FC = () => {
           {/* Header */}
           <header className="flex justify-between items-center mb-6 md:mb-10">
             <div className="flex items-center gap-3">
-              {/* Hamburger — mobile only */}
-              <button
-                onClick={() => setSidebarOpen(true)}
-                className="md:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm"
-              >
+              <button onClick={() => setSidebarOpen(true)} className="md:hidden p-2 rounded-xl bg-white border border-slate-200 text-slate-600 shadow-sm">
                 <Menu size={20} />
               </button>
               <div>
-                <h2 className="text-blue-600 font-bold text-[9px] uppercase tracking-widest mb-0.5">Sistema de Gestão</h2>
+                <h2 className="text-blue-600 font-bold text-[9px] uppercase tracking-widest mb-0.5">Gilmar Auto Center</h2>
                 <h1 className="text-xl md:text-3xl font-black text-slate-800 tracking-tight capitalize">{activeTab}</h1>
               </div>
             </div>
@@ -313,18 +513,14 @@ const App: React.FC = () => {
                 <StatBox title="Serviços Hoje"        value={String(reportData.daily.count)}                      icon={Wrench}     color="text-blue-500"   />
                 <StatBox title="Profissionais Ativos" value={String(staff.length)}                                icon={UserCircle} color="text-purple-500" />
               </div>
-
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Equipa */}
                 <div className="bg-white p-5 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
                   <h3 className="text-lg font-black mb-4">Equipa em Campo</h3>
                   <div className="space-y-3">
                     {staff.map(s => (
                       <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl">
                         <div className="flex items-center gap-3">
-                          <div className="bg-white p-2 rounded-full border border-slate-100 text-slate-400 flex-shrink-0">
-                            <UserCircle size={18} />
-                          </div>
+                          <div className="bg-white p-2 rounded-full border border-slate-100 text-slate-400 flex-shrink-0"><UserCircle size={18} /></div>
                           <div className="min-w-0">
                             <p className="font-bold text-slate-800 text-sm truncate">{s.name}</p>
                             <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{s.specialty || 'Mecânico Geral'}</p>
@@ -336,8 +532,6 @@ const App: React.FC = () => {
                     {staff.length === 0 && <p className="text-center text-slate-400 py-4 text-sm">Nenhum profissional cadastrado.</p>}
                   </div>
                 </div>
-
-                {/* Últimas atribuições */}
                 <div className="bg-white p-5 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
                   <h3 className="text-lg font-black mb-4">Últimas Atribuições</h3>
                   <div className="space-y-3">
@@ -369,8 +563,7 @@ const App: React.FC = () => {
               </div>
               <div className="bg-white p-5 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
                 <h3 className="text-base font-black mb-5 flex items-center gap-2 text-blue-600">
-                  <Briefcase size={18} />
-                  Produtividade da Equipa (Mensal)
+                  <Briefcase size={18} /> Produtividade da Equipa (Mensal)
                 </h3>
                 <div className="overflow-x-auto -mx-5 md:mx-0 px-5 md:px-0">
                   <table className="w-full min-w-[360px]">
@@ -399,45 +592,138 @@ const App: React.FC = () => {
             </div>
           )}
 
+          {/* ── Orçamentos ── */}
+          {activeTab === 'quotes' && (
+            <div className="space-y-4">
+              {/* Mobile cards */}
+              <div className="md:hidden space-y-3">
+                {quotes.filter(q => JSON.stringify(q).toLowerCase().includes(searchTerm.toLowerCase())).map(q => (
+                  <div key={q.id} className="bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-black text-slate-800 truncate">{q.clientName}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">{q.vehicleModel || '—'} {q.vehiclePlate ? `· ${q.vehiclePlate}` : ''}</p>
+                      </div>
+                      <QuoteStatusBadge status={q.status} />
+                    </div>
+                    <p className="text-lg font-black text-blue-600 mb-3">{formatBRL(q.total)}</p>
+                    <div className="flex items-center gap-2">
+                      <button onClick={() => printQuote(q)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 text-slate-700 text-xs font-bold py-2 rounded-xl hover:bg-slate-200 transition-colors">
+                        <Printer size={13} /> PDF
+                      </button>
+                      {q.status === 'Pendente' && (
+                        <>
+                          <button onClick={() => changeQuoteStatus(q.id, 'Aprovado')} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold py-2 rounded-xl hover:bg-emerald-100 transition-colors">
+                            <ThumbsUp size={13} /> Aprovar
+                          </button>
+                          <button onClick={() => changeQuoteStatus(q.id, 'Recusado')} className="flex-1 flex items-center justify-center gap-1.5 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-xl hover:bg-red-100 transition-colors">
+                            <ThumbsDown size={13} /> Recusar
+                          </button>
+                        </>
+                      )}
+                      <button onClick={() => deleteQuote(q.id)} className="p-2 text-slate-300 hover:text-red-500 transition-colors">
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {quotes.length === 0 && <p className="text-center text-slate-400 py-10 text-sm">Nenhum orçamento ainda. Crie o primeiro!</p>}
+              </div>
+
+              {/* Desktop table */}
+              <div className="hidden md:block bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+                <div className="p-4 border-b flex items-center bg-slate-50/50">
+                  <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
+                  <input placeholder="Procurar orçamentos..." className="bg-transparent outline-none w-full font-medium text-sm" onChange={e => setSearchTerm(e.target.value)} />
+                </div>
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
+                    <tr>
+                      <th className="p-5">Cliente</th>
+                      <th className="p-5">Veículo / Placa</th>
+                      <th className="p-5">Total</th>
+                      <th className="p-5">Status</th>
+                      <th className="p-5 text-right">Ações</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {quotes.filter(q => JSON.stringify(q).toLowerCase().includes(searchTerm.toLowerCase())).map(q => (
+                      <tr key={q.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-5 font-bold text-slate-800 text-sm">{q.clientName}</td>
+                        <td className="p-5 text-sm text-slate-500">{q.vehicleModel || '—'}{q.vehiclePlate ? ` · ${q.vehiclePlate}` : ''}</td>
+                        <td className="p-5 font-black text-blue-600 text-sm">{formatBRL(q.total)}</td>
+                        <td className="p-5"><QuoteStatusBadge status={q.status} /></td>
+                        <td className="p-5 text-right">
+                          <div className="flex items-center justify-end gap-2">
+                            <button onClick={() => printQuote(q)} title="Gerar PDF" className="flex items-center gap-1.5 bg-slate-100 text-slate-600 text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-colors">
+                              <Printer size={14} /> PDF
+                            </button>
+                            {q.status === 'Pendente' && (
+                              <>
+                                <button onClick={() => changeQuoteStatus(q.id, 'Aprovado')} className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-emerald-100 transition-colors">
+                                  <ThumbsUp size={13} /> Aprovar
+                                </button>
+                                <button onClick={() => changeQuoteStatus(q.id, 'Recusado')} className="flex items-center gap-1 bg-red-50 text-red-600 text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-red-100 transition-colors">
+                                  <ThumbsDown size={13} /> Recusar
+                                </button>
+                              </>
+                            )}
+                            <button onClick={() => deleteQuote(q.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1"><Trash2 size={17} /></button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                    {quotes.length === 0 && (
+                      <tr><td colSpan={5} className="p-10 text-center text-slate-400 text-sm">Nenhum orçamento registado.</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* ── Tabela / Cards ── */}
           {(['services', 'staff', 'vehicles', 'customers'] as TabName[]).includes(activeTab) && (
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-              {/* Search */}
               <div className="p-3 md:p-4 border-b flex items-center bg-slate-50/50">
                 <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
-                <input
-                  placeholder="Procurar na base..."
-                  className="bg-transparent outline-none w-full font-medium text-sm"
-                  onChange={e => setSearchTerm(e.target.value)}
-                />
+                <input placeholder="Procurar na base..." className="bg-transparent outline-none w-full font-medium text-sm" onChange={e => setSearchTerm(e.target.value)} />
               </div>
-
-              {/* Mobile — cards */}
+              {/* Mobile cards */}
               <div className="md:hidden divide-y divide-slate-100">
                 {tableData.map(item => {
                   const cells = getTableCells(item);
+                  const isSvc = activeTab === 'services';
+                  const svc = isSvc ? (item as Service) : null;
                   return (
                     <div key={item.id} className="flex items-center justify-between p-4">
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-slate-800 text-sm truncate">{cells[0]}</p>
                         <p className="text-xs text-slate-500 mt-0.5 truncate">{cells[1]}</p>
-                        <p className="text-[10px] text-slate-400 mt-0.5 uppercase font-bold">{cells[2]}</p>
+                        {isSvc && svc
+                          ? <div className="mt-1"><StatusBadge status={svc.status} paymentMethod={svc.paymentMethod} /></div>
+                          : <p className="text-[10px] text-slate-400 mt-0.5 uppercase font-bold">{cells[2]}</p>
+                        }
                       </div>
-                      <button
-                        onClick={() => handleDelete(item.id)}
-                        className="text-slate-300 hover:text-red-500 transition-colors ml-3 flex-shrink-0 p-1"
-                      >
-                        <Trash2 size={17} />
-                      </button>
+                      <div className="flex items-center gap-2 ml-3 flex-shrink-0">
+                        {isSvc && svc && svc.status === 'Pendente' && (
+                          <button
+                            onClick={() => openDelivery(item.id)}
+                            className="flex items-center gap-1 bg-emerald-500 text-white text-[10px] font-black px-2.5 py-1.5 rounded-xl hover:bg-emerald-600 transition-colors"
+                          >
+                            <CheckCircle size={12} /> Entregar
+                          </button>
+                        )}
+                        <button onClick={() => handleDelete(item.id)} className="text-slate-300 hover:text-red-500 transition-colors p-1">
+                          <Trash2 size={17} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
-                {tableData.length === 0 && (
-                  <p className="p-8 text-center text-slate-400 text-sm">Nenhum registo encontrado.</p>
-                )}
+                {tableData.length === 0 && <p className="p-8 text-center text-slate-400 text-sm">Nenhum registo encontrado.</p>}
               </div>
-
-              {/* Desktop — table */}
+              {/* Desktop table */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
@@ -449,17 +735,29 @@ const App: React.FC = () => {
                   <tbody className="divide-y">
                     {tableData.map(item => {
                       const cells = getTableCells(item);
+                      const isSvc = activeTab === 'services';
+                      const svc = isSvc ? (item as Service) : null;
                       return (
                         <tr key={item.id} className="hover:bg-slate-50 transition-colors">
                           {cells.map((cell, i) => (
                             <td key={i} className={`p-6 text-sm ${i === 0 ? 'font-bold text-slate-800' : 'font-medium text-slate-500'}`}>
-                              {cell}
+                              {isSvc && i === 2 && svc
+                                ? <StatusBadge status={svc.status} paymentMethod={svc.paymentMethod} />
+                                : cell}
                             </td>
                           ))}
                           <td className="p-6 text-right">
-                            <button onClick={() => handleDelete(item.id)} className="text-slate-300 hover:text-red-500 transition-colors">
-                              <Trash2 size={18} />
-                            </button>
+                            <div className="flex items-center justify-end gap-3">
+                              {isSvc && svc && svc.status === 'Pendente' && (
+                                <button
+                                  onClick={() => openDelivery(item.id)}
+                                  className="flex items-center gap-1.5 bg-emerald-500 text-white text-xs font-black px-3 py-1.5 rounded-xl hover:bg-emerald-600 transition-colors"
+                                >
+                                  <CheckCircle size={14} /> Entregar
+                                </button>
+                              )}
+                              <button onClick={() => handleDelete(item.id)} className="text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
+                            </div>
                           </td>
                         </tr>
                       );
@@ -474,15 +772,12 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {/* ── Bottom Nav (mobile only) ── */}
-        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-white/5 flex z-30 safe-area-bottom">
-          <BottomNavItem id="dashboard" icon={LayoutDashboard} label="Home"     active={activeTab} onClick={handleTabChange} />
-          <BottomNavItem id="services"  icon={Wrench}          label="Serviços" active={activeTab} onClick={handleTabChange} />
-          <BottomNavItem id="vehicles"  icon={Car}             label="Veículos" active={activeTab} onClick={handleTabChange} />
-          {isAdmin
-            ? <BottomNavItem id="reports" icon={BarChart3} label="Relatórios" active={activeTab} onClick={handleTabChange} />
-            : <BottomNavItem id="services" icon={Search} label="Buscar" active={activeTab} onClick={handleTabChange} />
-          }
+        {/* ── Bottom Nav (mobile) ── */}
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-slate-900 border-t border-white/5 flex z-30">
+          <BottomNavItem id="dashboard" icon={LayoutDashboard} label="Home"       active={activeTab} onClick={handleTabChange} />
+          <BottomNavItem id="services"  icon={Wrench}          label="Serviços"   active={activeTab} onClick={handleTabChange} />
+          <BottomNavItem id="quotes"    icon={FileText}        label="Orçamentos" active={activeTab} onClick={handleTabChange} />
+          <BottomNavItem id="vehicles"  icon={Car}             label="Veículos"   active={activeTab} onClick={handleTabChange} />
           <button
             onClick={() => setSidebarOpen(true)}
             className="flex-1 flex flex-col items-center justify-center py-3 text-slate-400 hover:text-white transition-colors"
@@ -493,23 +788,136 @@ const App: React.FC = () => {
         </nav>
       </div>
 
-      {/* ── Modal (bottom sheet no mobile, centrado no desktop) ── */}
+      {/* ══════════════════════════════════════════
+          MODAL DE LOGIN — ACESSO ADMIN
+      ══════════════════════════════════════════ */}
+      {showLoginModal && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
+          <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
+
+            {/* Ícone + Título */}
+            <div className="flex flex-col items-center mb-8">
+              <div className="bg-blue-600 p-4 rounded-2xl mb-4 shadow-lg shadow-blue-200">
+                <Lock size={28} className="text-white" />
+              </div>
+              <h2 className="text-xl font-black text-slate-800">Acesso Restrito</h2>
+              <p className="text-sm text-slate-400 mt-1 text-center">Digite a senha de administrador para continuar</p>
+            </div>
+
+            {/* Input senha */}
+            <div className="relative mb-4">
+              <input
+                type={pwdVisible ? 'text' : 'password'}
+                placeholder="Senha de administrador"
+                value={pwdInput}
+                onChange={e => { setPwdInput(e.target.value); setPwdError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+                className={`w-full p-4 pr-12 bg-slate-50 rounded-2xl outline-none font-bold text-sm transition-all ${pwdError ? 'ring-2 ring-red-400 bg-red-50' : 'focus:ring-2 focus:ring-blue-400'}`}
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={() => setPwdVisible(v => !v)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+              >
+                {pwdVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+              </button>
+            </div>
+
+            {/* Erro */}
+            {pwdError && (
+              <p className="text-xs text-red-500 font-bold mb-4 flex items-center gap-1">
+                <X size={12} /> {pwdError}
+              </p>
+            )}
+
+            {/* Senha padrão (dica) */}
+            <p className="text-[10px] text-slate-400 mb-6 text-center">
+              Senha padrão: <span className="font-black text-slate-500">admin123</span>
+            </p>
+
+            {/* Botões */}
+            <div className="flex gap-3">
+              <button onClick={() => { setShowLoginModal(false); setPwdInput(''); setPwdError(''); }} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">
+                Cancelar
+              </button>
+              <button onClick={handleAdminLogin} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm">
+                Entrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          MODAL ALTERAR SENHA
+      ══════════════════════════════════════════ */}
+      {showChangePwd && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
+          <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
+
+            <div className="flex flex-col items-center mb-6">
+              <div className="bg-slate-800 p-4 rounded-2xl mb-4">
+                <KeyRound size={24} className="text-white" />
+              </div>
+              <h2 className="text-xl font-black text-slate-800">Alterar Senha</h2>
+              <p className="text-sm text-slate-400 mt-1 text-center">Defina uma nova senha para o acesso admin</p>
+            </div>
+
+            <div className="space-y-3 mb-4">
+              <div className="relative">
+                <input
+                  type={newPwdVisible ? 'text' : 'password'}
+                  placeholder="Nova senha (mín. 4 caracteres)"
+                  value={newPwd}
+                  onChange={e => { setNewPwd(e.target.value); setPwdError(''); }}
+                  className="w-full p-4 pr-12 bg-slate-50 rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-blue-400"
+                />
+                <button type="button" onClick={() => setNewPwdVisible(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                  {newPwdVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+                </button>
+              </div>
+              <input
+                type={newPwdVisible ? 'text' : 'password'}
+                placeholder="Confirmar nova senha"
+                value={confirmPwd}
+                onChange={e => { setConfirmPwd(e.target.value); setPwdError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleChangePassword()}
+                className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+
+            {pwdError && (
+              <p className="text-xs text-red-500 font-bold mb-4 flex items-center gap-1">
+                <X size={12} /> {pwdError}
+              </p>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={() => { setShowChangePwd(false); setPwdError(''); }} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">
+                Cancelar
+              </button>
+              <button onClick={handleChangePassword} className="flex-1 p-4 bg-slate-800 text-white rounded-2xl font-bold hover:bg-slate-900 transition-all text-sm">
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modal de registo (OS / Veículo / etc) ── */}
       {showModal && (
         <div
           className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-50"
           onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}
         >
           <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
-            {/* Handle bar mobile */}
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
-
             <h2 className="text-xl md:text-2xl font-black mb-6">
-              {modalType === 'staff'    ? 'Novo Profissional'
-               : modalType === 'vehicle'  ? 'Novo Veículo'
-               : modalType === 'customer' ? 'Novo Cliente'
-               : 'Novo Serviço'}
+              {modalType === 'staff' ? 'Novo Profissional' : modalType === 'vehicle' ? 'Novo Veículo' : modalType === 'customer' ? 'Novo Cliente' : modalType === 'quote' ? 'Novo Orçamento' : 'Novo Serviço'}
             </h2>
-
             <div className="space-y-4">
               {modalType === 'staff' && (
                 <>
@@ -517,32 +925,22 @@ const App: React.FC = () => {
                   <input placeholder="Especialidade (Ex: Suspensão, Motor)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, specialty: e.target.value}))} />
                 </>
               )}
-
               {modalType === 'vehicle' && (
                 <>
                   <input placeholder="Modelo do Veículo (Ex: Civic 2022)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, model: e.target.value}))} />
                   <input placeholder="Placa (Ex: ABC-1234)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, plate: e.target.value}))} />
                 </>
               )}
-
               {modalType === 'customer' && (
                 <>
                   <input placeholder="Nome do Cliente" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, name: e.target.value}))} />
                   <input placeholder="Telefone (Ex: 11 99999-9999)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, phone: e.target.value}))} />
                 </>
               )}
-
               {modalType === 'service' && (
                 <>
                   <input placeholder="Descrição do Serviço" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, description: e.target.value}))} />
-                  <div className="grid grid-cols-2 gap-3">
-                    <input type="number" placeholder="Valor (BRL)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, value: e.target.value}))} />
-                    <select className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-slate-500 text-sm" onChange={e => setFormData(f => ({...f, paymentMethod: e.target.value}))}>
-                      <option value="Dinheiro">Dinheiro</option>
-                      <option value="Pix">Pix</option>
-                      <option value="Cartão">Cartão</option>
-                    </select>
-                  </div>
+                  <input type="number" placeholder="Valor estimado (BRL)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, value: e.target.value}))} />
                   <div>
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Profissional Responsável</p>
                     <select className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-slate-700 text-sm" onChange={e => setFormData(f => ({...f, staffName: e.target.value}))}>
@@ -550,17 +948,148 @@ const App: React.FC = () => {
                       {staff.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                     </select>
                   </div>
+                  {/* Info: pagamento é definido na entrega */}
+                  <div className="flex items-center gap-2 bg-amber-50 border border-amber-100 rounded-2xl p-3">
+                    <Clock size={14} className="text-amber-500 flex-shrink-0" />
+                    <p className="text-[11px] text-amber-700 font-bold">A forma de pagamento será definida na entrega do serviço.</p>
+                  </div>
                 </>
               )}
+              {modalType === 'quote' && (
+                <>
+                  {/* Cliente + Veículo */}
+                  <input
+                    placeholder="Nome do Cliente *"
+                    value={quoteClient}
+                    onChange={e => setQuoteClient(e.target.value)}
+                    className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                  />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      placeholder="Modelo (Ex: Civic 2022)"
+                      value={quoteVehicle}
+                      onChange={e => setQuoteVehicle(e.target.value)}
+                      className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                    />
+                    <input
+                      placeholder="Placa (Ex: ABC-1234)"
+                      value={quotePlate}
+                      onChange={e => setQuotePlate(e.target.value)}
+                      className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                    />
+                  </div>
 
+                  {/* Itens do orçamento */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Serviços / Itens *</p>
+                      <button
+                        onClick={() => setQuoteItems(prev => [...prev, { description: '', qty: 1, unitValue: 0 }])}
+                        className="flex items-center gap-1 text-blue-600 text-xs font-bold hover:text-blue-700"
+                      >
+                        <PlusCircle size={14} /> Adicionar item
+                      </button>
+                    </div>
+                    <div className="space-y-2">
+                      {quoteItems.map((item, idx) => (
+                        <div key={idx} className="flex gap-2 items-center">
+                          <input
+                            placeholder="Descrição do serviço"
+                            value={item.description}
+                            onChange={e => setQuoteItems(prev => prev.map((it, i) => i === idx ? { ...it, description: e.target.value } : it))}
+                            className="flex-1 p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm min-w-0"
+                          />
+                          <input
+                            type="number"
+                            placeholder="Qtd"
+                            value={item.qty}
+                            min={1}
+                            onChange={e => setQuoteItems(prev => prev.map((it, i) => i === idx ? { ...it, qty: parseInt(e.target.value) || 1 } : it))}
+                            className="w-14 p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm text-center"
+                          />
+                          <input
+                            type="number"
+                            placeholder="R$"
+                            value={item.unitValue || ''}
+                            min={0}
+                            onChange={e => setQuoteItems(prev => prev.map((it, i) => i === idx ? { ...it, unitValue: parseFloat(e.target.value) || 0 } : it))}
+                            className="w-24 p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm"
+                          />
+                          {quoteItems.length > 1 && (
+                            <button onClick={() => setQuoteItems(prev => prev.filter((_, i) => i !== idx))} className="text-slate-300 hover:text-red-500 transition-colors flex-shrink-0">
+                              <MinusCircle size={18} />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Total */}
+                  <div className="flex justify-between items-center bg-blue-50 rounded-2xl p-4 border border-blue-100">
+                    <span className="text-sm font-black text-slate-600">Total do Orçamento</span>
+                    <span className="text-lg font-black text-blue-600">
+                      {formatBRL(quoteItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0))}
+                    </span>
+                  </div>
+                </>
+              )}
               <div className="flex gap-3 pt-4 border-t">
-                <button onClick={() => setShowModal(false)} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                  Cancelar
-                </button>
-                <button onClick={handleSave} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm">
+                <button onClick={() => setShowModal(false)} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">Cancelar</button>
+                <button
+                  onClick={modalType === 'quote' ? handleSaveQuote : handleSave}
+                  className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm"
+                >
                   Confirmar
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════════════════════════════════
+          MODAL ENTREGA DO SERVIÇO
+      ══════════════════════════════════════════ */}
+      {showDeliveryModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
+          <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
+
+            <div className="flex flex-col items-center mb-8">
+              <div className="bg-emerald-500 p-4 rounded-2xl mb-4 shadow-lg shadow-emerald-200">
+                <CheckCircle size={28} className="text-white" />
+              </div>
+              <h2 className="text-xl font-black text-slate-800">Entregar Serviço</h2>
+              <p className="text-sm text-slate-400 mt-1 text-center">Selecione a forma de pagamento para finalizar</p>
+            </div>
+
+            <div className="mb-6">
+              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mb-2 ml-1">Forma de Pagamento</p>
+              <div className="grid grid-cols-3 gap-2">
+                {['Dinheiro', 'Pix', 'Cartão'].map(method => (
+                  <button
+                    key={method}
+                    onClick={() => setDeliveryPayment(method)}
+                    className={`p-3 rounded-2xl font-bold text-sm border-2 transition-all ${
+                      deliveryPayment === method
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-slate-200'
+                    }`}
+                  >
+                    {method}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex gap-3">
+              <button onClick={() => setShowDeliveryModal(false)} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">
+                Cancelar
+              </button>
+              <button onClick={confirmDelivery} className="flex-1 p-4 bg-emerald-500 text-white rounded-2xl font-bold shadow-lg shadow-emerald-200 hover:bg-emerald-600 transition-all text-sm">
+                Confirmar Entrega
+              </button>
             </div>
           </div>
         </div>
@@ -576,7 +1105,6 @@ interface NavItemProps {
   id: TabName; icon: React.ElementType<any>; label: string;
   active: TabName; onClick: (id: TabName) => void;
 }
-
 const NavItem: React.FC<NavItemProps> = ({ id, icon: Icon, label, active, onClick }) => (
   <button
     onClick={() => onClick(id)}
@@ -601,10 +1129,7 @@ const BottomNavItem: React.FC<NavItemProps> = ({ id, icon: Icon, label, active, 
   </button>
 );
 
-interface StatBoxProps {
-  title: string; value: string; icon: React.ElementType<any>; color: string;
-}
-
+interface StatBoxProps { title: string; value: string; icon: React.ElementType<any>; color: string; }
 const StatBox: React.FC<StatBoxProps> = ({ title, value, icon: Icon, color }) => (
   <div className="bg-white p-5 md:p-6 rounded-3xl border border-slate-200 shadow-sm flex items-center justify-between">
     <div>
@@ -614,5 +1139,42 @@ const StatBox: React.FC<StatBoxProps> = ({ title, value, icon: Icon, color }) =>
     <div className={`p-3 rounded-xl bg-slate-50 ${color} flex-shrink-0`}><Icon size={20} /></div>
   </div>
 );
+
+interface StatusBadgeProps { status: string; paymentMethod?: string; }
+const StatusBadge: React.FC<StatusBadgeProps> = ({ status, paymentMethod }) => {
+  if (status === 'Entregue') {
+    return (
+      <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-full">
+        <CheckCircle size={10} />
+        Entregue{paymentMethod ? ` · ${paymentMethod}` : ''}
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-[10px] font-black px-2.5 py-1 rounded-full">
+      <Clock size={10} />
+      Pendente
+    </span>
+  );
+};
+
+interface QuoteStatusBadgeProps { status: Quote['status']; }
+const QuoteStatusBadge: React.FC<QuoteStatusBadgeProps> = ({ status }) => {
+  if (status === 'Aprovado') return (
+    <span className="inline-flex items-center gap-1.5 bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-full">
+      <ThumbsUp size={10} /> Aprovado
+    </span>
+  );
+  if (status === 'Recusado') return (
+    <span className="inline-flex items-center gap-1.5 bg-red-50 text-red-600 text-[10px] font-black px-2.5 py-1 rounded-full">
+      <ThumbsDown size={10} /> Recusado
+    </span>
+  );
+  return (
+    <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-[10px] font-black px-2.5 py-1 rounded-full">
+      <Clock size={10} /> Pendente
+    </span>
+  );
+};
 
 export default App;
