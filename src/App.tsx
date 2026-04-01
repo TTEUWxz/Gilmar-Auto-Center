@@ -109,8 +109,9 @@ const App: React.FC = () => {
   const [services,  setServices]  = useState<Service[]>([]);
   const [staff,     setStaff]     = useState<Staff[]>([]);
 
-  const [searchTerm, setSearchTerm] = useState('');
-  const [showModal,  setShowModal]  = useState(false);
+  const [searchTerm,      setSearchTerm]      = useState('');
+  const [serviceFilter,   setServiceFilter]   = useState<'Todos' | 'Pendente' | 'Entregue'>('Todos');
+  const [showModal,       setShowModal]        = useState(false);
   const [modalType,  setModalType]  = useState<ModalType>('service');
   const [formData,   setFormData]   = useState<Record<string, string>>({
     paymentMethod: 'Dinheiro', staffName: '',
@@ -425,7 +426,13 @@ const App: React.FC = () => {
     </div>
   );
 
-  const tableData    = getTableData().filter(i => JSON.stringify(i).toLowerCase().includes(searchTerm.toLowerCase()));
+  const tableData = getTableData().filter(i => {
+    const matchSearch = JSON.stringify(i).toLowerCase().includes(searchTerm.toLowerCase());
+    if (activeTab !== 'services') return matchSearch;
+    const svc = i as Service;
+    const matchFilter = serviceFilter === 'Todos' || svc.status === serviceFilter;
+    return matchSearch && matchFilter;
+  });
   const tableHeaders = getTableHeaders();
 
   return (
@@ -694,10 +701,35 @@ const App: React.FC = () => {
           {/* ── Tabela / Cards ── */}
           {(['services', 'staff', 'vehicles', 'customers'] as TabName[]).includes(activeTab) && (
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
+              {/* Barra de pesquisa */}
               <div className="p-3 md:p-4 border-b flex items-center bg-slate-50/50">
                 <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
-                <input placeholder="Procurar na base..." className="bg-transparent outline-none w-full font-medium text-sm" onChange={e => setSearchTerm(e.target.value)} />
+                <input
+                  placeholder={activeTab === 'services' ? 'Buscar por cliente, placa ou serviço...' : 'Procurar na base...'}
+                  className="bg-transparent outline-none w-full font-medium text-sm"
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
               </div>
+              {/* Filtros rápidos de status (apenas serviços) */}
+              {activeTab === 'services' && (
+                <div className="flex items-center gap-2 px-4 py-2.5 border-b bg-slate-50/30 overflow-x-auto">
+                  {(['Todos', 'Pendente', 'Entregue'] as const).map(f => (
+                    <button
+                      key={f}
+                      onClick={() => setServiceFilter(f)}
+                      className={`flex-shrink-0 px-3 py-1.5 rounded-full text-[11px] font-black transition-all ${
+                        serviceFilter === f
+                          ? f === 'Todos'    ? 'bg-slate-800 text-white'
+                          : f === 'Pendente' ? 'bg-amber-500 text-white'
+                                             : 'bg-emerald-500 text-white'
+                          : 'bg-slate-100 text-slate-500 hover:bg-slate-200'
+                      }`}
+                    >
+                      {f === 'Todos' ? `Todos (${services.length})` : f === 'Pendente' ? `Pendentes (${services.filter(s => s.status === 'Pendente').length})` : `Entregues (${services.filter(s => s.status === 'Entregue').length})`}
+                    </button>
+                  ))}
+                </div>
+              )}
               {/* Mobile cards */}
               <div className="md:hidden divide-y divide-slate-100">
                 {tableData.map(item => {
