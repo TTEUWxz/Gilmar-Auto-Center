@@ -55,6 +55,7 @@ interface Staff    extends BaseItem { name: string; specialty?: string; }
 interface Service  extends BaseItem {
   description: string; value: number; paymentMethod: string;
   staffName: string; status: string; date: string;
+  clientName: string; plate: string;
 }
 interface QuoteItem { description: string; qty: number; unitValue: number; }
 interface Quote extends BaseItem {
@@ -90,7 +91,6 @@ const formatBRL = (val?: number) =>
 const App: React.FC = () => {
   // ── Auth state ──
   const [isAuthenticated, setIsAuthenticated] = useState(isAuthValid);
-  const [showLoginModal,  setShowLoginModal]   = useState(false);
   const [showChangePwd,   setShowChangePwd]    = useState(false);
   const [pwdInput,        setPwdInput]         = useState('');
   const [pwdVisible,      setPwdVisible]       = useState(false);
@@ -100,7 +100,6 @@ const App: React.FC = () => {
   const [newPwdVisible,   setNewPwdVisible]    = useState(false);
 
   // ── App state ──
-  const [role, setRole]           = useState<'admin' | 'funcionario'>(isAuthValid() ? 'admin' : 'funcionario');
   const [activeTab, setActiveTab] = useState<TabName>('dashboard');
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading]     = useState(true);
@@ -138,18 +137,14 @@ const App: React.FC = () => {
     setLoading(false);
   }, []);
 
-  const isAdmin = role === 'admin';
-
   // ── Auth actions ──
   const handleAdminLogin = () => {
     if (pwdInput === getStoredPwd()) {
       setIsAuthenticated(true);
       setAuthValid(true);
-      setRole('admin');
       setPwdInput('');
       setPwdError('');
       setPwdVisible(false);
-      setShowLoginModal(false);
     } else {
       setPwdError('Senha incorreta. Tente novamente.');
       setPwdInput('');
@@ -159,8 +154,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setAuthValid(false);
-    setRole('funcionario');
-    if (['customers', 'reports', 'staff'].includes(activeTab)) setActiveTab('dashboard');
+    setActiveTab('dashboard');
     setSidebarOpen(false);
   };
 
@@ -224,6 +218,8 @@ const App: React.FC = () => {
         description:   formData.description ?? '',
         paymentMethod: formData.paymentMethod ?? 'Dinheiro',
         staffName:     formData.staffName ?? '',
+        clientName:    formData.clientName ?? '',
+        plate:         formData.plate ?? '',
       } as Omit<Service, 'id'>);
       setServices(prev => [...prev, item as Service]);
     } else if (modalType === 'staff') {
@@ -241,7 +237,6 @@ const App: React.FC = () => {
   };
 
   const handleDelete = (id: string) => {
-    if (!isAdmin) return;
     const colMap: Record<TabName, string> = {
       services: 'services', staff: 'staff', vehicles: 'vehicles',
       customers: 'customers', dashboard: '', reports: '', quotes: '',
@@ -380,19 +375,53 @@ const App: React.FC = () => {
     if (activeTab === 'staff')     return ['Profissional', 'Especialidade', 'Admitido em'];
     if (activeTab === 'vehicles')  return ['Modelo', 'Placa', 'Cadastrado em'];
     if (activeTab === 'customers') return ['Cliente', 'Telefone', 'Cadastrado em'];
-    return ['Serviço', 'Profissional', 'Status'];
+    return ['Serviço / Cliente', 'Placa · Mecânico', 'Status'];
   };
   const getTableCells = (item: BaseItem) => {
     if (activeTab === 'staff')     { const s = item as Staff;     return [s.name, s.specialty || '-', s.createdAt?.substring(0,10) || '-']; }
     if (activeTab === 'vehicles')  { const v = item as Vehicle;   return [v.model, v.plate || '-', v.createdAt?.substring(0,10) || '-']; }
     if (activeTab === 'customers') { const c = item as Customer;  return [c.name, c.phone || '-', c.createdAt?.substring(0,10) || '-']; }
     const sv = item as Service;
-    return [sv.description, sv.staffName || 'Nenhum', sv.status || 'Pendente'];
+    const svcTitle = sv.clientName ? `${sv.description} · ${sv.clientName}` : sv.description;
+    const svcSub   = [sv.plate, sv.staffName || 'Sem mecânico'].filter(Boolean).join(' · ');
+    return [svcTitle, svcSub, sv.status || 'Pendente'];
   };
 
   if (loading) return (
     <div className="h-screen flex items-center justify-center bg-slate-900 text-white">
       <Loader2 className="animate-spin" size={32} />
+    </div>
+  );
+
+  // ── Tela de login (acesso bloqueado sem senha) ──
+  if (!isAuthenticated) return (
+    <div className="h-screen flex items-center justify-center bg-slate-900 p-4">
+      <div className="bg-white rounded-3xl p-8 md:p-10 w-full max-w-sm shadow-2xl">
+        <div className="flex flex-col items-center mb-8">
+          <GilmarLogo className="h-28 w-auto" />
+        </div>
+        <div className="relative mb-4">
+          <input
+            type={pwdVisible ? 'text' : 'password'}
+            placeholder="Senha"
+            value={pwdInput}
+            onChange={e => { setPwdInput(e.target.value); setPwdError(''); }}
+            onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
+            className={`w-full p-4 pr-12 bg-slate-50 rounded-2xl outline-none font-bold text-sm transition-all ${pwdError ? 'ring-2 ring-red-400 bg-red-50' : 'focus:ring-2 focus:ring-blue-400'}`}
+            autoFocus
+          />
+          <button type="button" onClick={() => setPwdVisible(v => !v)} className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+            {pwdVisible ? <EyeOff size={18} /> : <Eye size={18} />}
+          </button>
+        </div>
+        {pwdError && (
+          <p className="text-xs text-red-500 font-bold mb-4 flex items-center gap-1"><X size={12} />{pwdError}</p>
+        )}
+        <p className="text-[10px] text-slate-400 mb-6 text-center">Senha padrão: <span className="font-black text-slate-500">admin123</span></p>
+        <button onClick={handleAdminLogin} className="w-full p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm">
+          Entrar
+        </button>
+      </div>
     </div>
   );
 
@@ -416,7 +445,7 @@ const App: React.FC = () => {
       `}>
         {/* Logo */}
         <div className="px-5 py-4 flex items-center justify-between border-b border-white/5">
-          <img src="/logo.svg" alt="Gilmar Auto Center" className="h-12 w-auto" />
+          <GilmarLogo className="h-12 w-auto" />
           <button onClick={() => setSidebarOpen(false)} className="md:hidden text-slate-400 hover:text-white p-1">
             <X size={20} />
           </button>
@@ -428,22 +457,18 @@ const App: React.FC = () => {
           <NavItem id="services"  icon={Wrench}          label="Serviços"   active={activeTab} onClick={handleTabChange} />
           <NavItem id="quotes"    icon={FileText}        label="Orçamentos" active={activeTab} onClick={handleTabChange} />
           <NavItem id="vehicles"  icon={Car}             label="Veículos"   active={activeTab} onClick={handleTabChange} />
-          {isAdmin && <NavItem id="staff"     icon={Briefcase} label="Equipa"     active={activeTab} onClick={handleTabChange} />}
-          {isAdmin && <NavItem id="customers" icon={Users}     label="Clientes"   active={activeTab} onClick={handleTabChange} />}
-          {isAdmin && <NavItem id="reports"   icon={BarChart3} label="Relatórios" active={activeTab} onClick={handleTabChange} />}
+          <NavItem id="staff"     icon={Briefcase}       label="Equipa"     active={activeTab} onClick={handleTabChange} />
+          <NavItem id="customers" icon={Users}           label="Clientes"   active={activeTab} onClick={handleTabChange} />
+          <NavItem id="reports"   icon={BarChart3}       label="Relatórios" active={activeTab} onClick={handleTabChange} />
         </nav>
 
-        {/* ── Auth switcher ── */}
-        <div className="p-4 m-4 bg-white/5 rounded-xl border border-white/5 space-y-3">
-          {/* Role badge */}
+        {/* ── Sessão / Logout ── */}
+        <div className="p-4 m-4 bg-white/5 rounded-xl border border-white/5">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {isAdmin
-                ? <span className="flex items-center gap-1.5 text-[10px] font-black text-blue-400 uppercase tracking-wider"><Lock size={11}/> Administrador</span>
-                : <span className="text-[10px] font-black text-amber-400 uppercase tracking-wider">Funcionário</span>
-              }
-            </div>
-            {isAdmin && (
+            <span className="flex items-center gap-1.5 text-[10px] font-black text-blue-400 uppercase tracking-wider">
+              <Lock size={11} /> Administrador
+            </span>
+            <div className="flex items-center gap-3">
               <button
                 onClick={() => { setPwdError(''); setNewPwd(''); setConfirmPwd(''); setShowChangePwd(true); setSidebarOpen(false); }}
                 className="text-slate-500 hover:text-slate-300 transition-colors"
@@ -451,30 +476,14 @@ const App: React.FC = () => {
               >
                 <KeyRound size={14} />
               </button>
-            )}
-          </div>
-
-          {/* Switcher buttons */}
-          <div className="flex bg-slate-950 p-1 rounded-lg gap-1">
-            <button
-              onClick={() => {
-                if (!isAuthenticated) {
-                  setPwdInput(''); setPwdError(''); setPwdVisible(false);
-                  setShowLoginModal(true); setSidebarOpen(false);
-                }
-              }}
-              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors flex items-center justify-center gap-1
-                ${role === 'admin' ? 'bg-blue-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              {role !== 'admin' && <Lock size={9} />} ADM
-            </button>
-            <button
-              onClick={isAdmin ? handleLogout : undefined}
-              className={`flex-1 text-[10px] font-bold py-1.5 rounded-md transition-colors flex items-center justify-center gap-1
-                ${role === 'funcionario' ? 'bg-amber-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
-            >
-              {role === 'admin' && <LogOut size={9} />} FUNC
-            </button>
+              <button
+                onClick={handleLogout}
+                className="text-slate-500 hover:text-red-400 transition-colors"
+                title="Sair"
+              >
+                <LogOut size={14} />
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -509,7 +518,7 @@ const App: React.FC = () => {
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <StatBox title="Faturamento Hoje"     value={isAdmin ? formatBRL(reportData.daily.total) : '---'} icon={DollarSign} color="text-emerald-500" />
+                <StatBox title="Faturamento Hoje"     value={formatBRL(reportData.daily.total)} icon={DollarSign} color="text-emerald-500" />
                 <StatBox title="Serviços Hoje"        value={String(reportData.daily.count)}                      icon={Wrench}     color="text-blue-500"   />
                 <StatBox title="Profissionais Ativos" value={String(staff.length)}                                icon={UserCircle} color="text-purple-500" />
               </div>
@@ -555,7 +564,7 @@ const App: React.FC = () => {
           )}
 
           {/* ── Relatórios ── */}
-          {activeTab === 'reports' && isAdmin && (
+          {activeTab === 'reports' && (
             <div className="space-y-6">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <StatBox title="Faturamento Mensal" value={formatBRL(reportData.monthly.total)} icon={DollarSign} color="text-emerald-500" />
@@ -789,68 +798,6 @@ const App: React.FC = () => {
       </div>
 
       {/* ══════════════════════════════════════════
-          MODAL DE LOGIN — ACESSO ADMIN
-      ══════════════════════════════════════════ */}
-      {showLoginModal && (
-        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
-          <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
-            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
-
-            {/* Ícone + Título */}
-            <div className="flex flex-col items-center mb-8">
-              <div className="bg-blue-600 p-4 rounded-2xl mb-4 shadow-lg shadow-blue-200">
-                <Lock size={28} className="text-white" />
-              </div>
-              <h2 className="text-xl font-black text-slate-800">Acesso Restrito</h2>
-              <p className="text-sm text-slate-400 mt-1 text-center">Digite a senha de administrador para continuar</p>
-            </div>
-
-            {/* Input senha */}
-            <div className="relative mb-4">
-              <input
-                type={pwdVisible ? 'text' : 'password'}
-                placeholder="Senha de administrador"
-                value={pwdInput}
-                onChange={e => { setPwdInput(e.target.value); setPwdError(''); }}
-                onKeyDown={e => e.key === 'Enter' && handleAdminLogin()}
-                className={`w-full p-4 pr-12 bg-slate-50 rounded-2xl outline-none font-bold text-sm transition-all ${pwdError ? 'ring-2 ring-red-400 bg-red-50' : 'focus:ring-2 focus:ring-blue-400'}`}
-                autoFocus
-              />
-              <button
-                type="button"
-                onClick={() => setPwdVisible(v => !v)}
-                className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
-              >
-                {pwdVisible ? <EyeOff size={18} /> : <Eye size={18} />}
-              </button>
-            </div>
-
-            {/* Erro */}
-            {pwdError && (
-              <p className="text-xs text-red-500 font-bold mb-4 flex items-center gap-1">
-                <X size={12} /> {pwdError}
-              </p>
-            )}
-
-            {/* Senha padrão (dica) */}
-            <p className="text-[10px] text-slate-400 mb-6 text-center">
-              Senha padrão: <span className="font-black text-slate-500">admin123</span>
-            </p>
-
-            {/* Botões */}
-            <div className="flex gap-3">
-              <button onClick={() => { setShowLoginModal(false); setPwdInput(''); setPwdError(''); }} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">
-                Cancelar
-              </button>
-              <button onClick={handleAdminLogin} className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm">
-                Entrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ══════════════════════════════════════════
           MODAL ALTERAR SENHA
       ══════════════════════════════════════════ */}
       {showChangePwd && (
@@ -939,6 +886,10 @@ const App: React.FC = () => {
               )}
               {modalType === 'service' && (
                 <>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input placeholder="Nome do Cliente *" className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, clientName: e.target.value}))} />
+                    <input placeholder="Placa (Ex: ABC-1234) *" className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm uppercase" onChange={e => setFormData(f => ({...f, plate: e.target.value.toUpperCase()}))} />
+                  </div>
                   <input placeholder="Descrição do Serviço" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, description: e.target.value}))} />
                   <input type="number" placeholder="Valor estimado (BRL)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, value: e.target.value}))} />
                   <div>
@@ -1176,5 +1127,24 @@ const QuoteStatusBadge: React.FC<QuoteStatusBadgeProps> = ({ status }) => {
     </span>
   );
 };
+
+interface GilmarLogoProps { className?: string; }
+const GilmarLogo: React.FC<GilmarLogoProps> = ({ className = '' }) => (
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 290" fill="none" className={className}>
+    <g fill="#4DBDE8">
+      <path d="M245 118 C220 112 192 108 165 112 C148 115 132 122 118 128 C135 122 155 118 178 117 C202 116 228 120 245 118Z" opacity="0.65"/>
+      <path d="M248 107 C222 100 193 96 164 100 C144 104 126 113 110 120 C128 112 150 107 174 106 C200 105 228 110 248 107Z" opacity="0.75"/>
+      <path d="M252 96 C226 88 196 84 165 88 C142 92 122 102 105 111 C124 102 148 96 173 95 C200 94 230 99 252 96Z"/>
+      <path d="M252 96 C265 85 282 78 300 76 C318 74 335 80 345 92 C352 100 352 112 344 120 C336 128 322 130 310 126 C295 121 280 110 268 102 C262 98 257 96 252 96Z"/>
+      <path d="M344 92 C350 86 360 82 370 83 C378 84 383 90 380 97 C377 103 368 106 360 104 C352 102 346 97 344 92Z"/>
+      <path d="M378 85 L396 78 L382 95 Z"/>
+      <path d="M290 82 C298 72 312 68 324 72 C312 75 300 80 292 88Z" opacity="0.55"/>
+      <path d="M300 126 L292 148 L286 148" stroke="#4DBDE8" strokeWidth="4" strokeLinecap="round"/>
+      <path d="M318 128 L312 150 L320 150" stroke="#4DBDE8" strokeWidth="4" strokeLinecap="round"/>
+    </g>
+    <text x="230" y="210" textAnchor="middle" fill="#1B3155" fontFamily="'Arial Black','Arial Bold',Impact,sans-serif" fontSize="92" fontWeight="900" letterSpacing="4">GILMAR</text>
+    <text x="230" y="262" textAnchor="middle" fill="#1B3155" fontFamily="'Arial Black','Arial Bold',Impact,sans-serif" fontSize="38" fontWeight="700" letterSpacing="18">AUTO CENTER</text>
+  </svg>
+);
 
 export default App;
