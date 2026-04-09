@@ -4,7 +4,7 @@ import {
   Trash2, DollarSign, Loader2, BarChart3,
   UserCircle, Briefcase, Menu, X, Lock, Eye, EyeOff, KeyRound, LogOut,
   CheckCircle, Clock, CreditCard, FileText, PlusCircle, MinusCircle, Printer,
-  ThumbsUp, ThumbsDown
+  ThumbsUp, ThumbsDown, Pencil
 } from 'lucide-react';
 
 // ---------------------------------------------------------------------------
@@ -123,11 +123,12 @@ const App: React.FC = () => {
   const [deliveryPayment,     setDeliveryPayment]     = useState('Dinheiro');
 
   // ── Orçamentos ──
-  const [quotes,        setQuotes]        = useState<Quote[]>([]);
-  const [quoteClient,   setQuoteClient]   = useState('');
-  const [quoteVehicle,  setQuoteVehicle]  = useState('');
-  const [quotePlate,    setQuotePlate]    = useState('');
-  const [quoteItems,    setQuoteItems]    = useState<QuoteItem[]>([{ description: '', qty: 1, unitValue: 0 }]);
+  const [quotes,          setQuotes]          = useState<Quote[]>([]);
+  const [quoteClient,     setQuoteClient]     = useState('');
+  const [quoteVehicle,    setQuoteVehicle]    = useState('');
+  const [quotePlate,      setQuotePlate]      = useState('');
+  const [quoteItems,      setQuoteItems]      = useState<QuoteItem[]>([{ description: '', qty: 1, unitValue: 0 }]);
+  const [editingQuoteId,  setEditingQuoteId]  = useState<string | null>(null);
 
   useEffect(() => {
     setCustomers(getCol<Customer>('customers'));
@@ -271,17 +272,43 @@ const App: React.FC = () => {
     setDeliveryServiceId(null);
   };
 
-  // ── Orçamento: salvar ──
+  // ── Orçamento: abrir edição ──
+  const openEditQuote = (q: Quote) => {
+    setEditingQuoteId(q.id);
+    setQuoteClient(q.clientName);
+    setQuoteVehicle(q.vehicleModel);
+    setQuotePlate(q.vehiclePlate);
+    setQuoteItems(q.items.length > 0 ? q.items : [{ description: '', qty: 1, unitValue: 0 }]);
+    setModalType('quote');
+    setShowModal(true);
+  };
+
+  // ── Orçamento: salvar (criar ou editar) ──
   const handleSaveQuote = () => {
     const validItems = quoteItems.filter(i => i.description.trim() !== '');
     if (!quoteClient.trim() || validItems.length === 0) return;
     const total = validItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0);
-    const newQuote = addItem<Omit<Quote, 'id'>>('quotes', {
-      clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate,
-      items: validItems, total, status: 'Pendente', createdAt: new Date().toISOString(),
-    });
-    setQuotes(prev => [...prev, newQuote as Quote]);
+
+    if (editingQuoteId) {
+      // Editar existente
+      const updated = quotes.map(q =>
+        q.id === editingQuoteId
+          ? { ...q, clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate, items: validItems, total }
+          : q
+      );
+      setQuotes(updated);
+      saveCol('quotes', updated);
+    } else {
+      // Novo orçamento
+      const newQuote = addItem<Omit<Quote, 'id'>>('quotes', {
+        clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate,
+        items: validItems, total, status: 'Pendente', createdAt: new Date().toISOString(),
+      });
+      setQuotes(prev => [...prev, newQuote as Quote]);
+    }
+
     setShowModal(false);
+    setEditingQuoteId(null);
     setQuoteClient(''); setQuoteVehicle(''); setQuotePlate('');
     setQuoteItems([{ description: '', qty: 1, unitValue: 0 }]);
   };
@@ -627,6 +654,9 @@ const App: React.FC = () => {
                       <button onClick={() => printQuote(q)} className="flex-1 flex items-center justify-center gap-1.5 bg-slate-100 text-slate-700 text-xs font-bold py-2 rounded-xl hover:bg-slate-200 transition-colors">
                         <Printer size={13} /> PDF
                       </button>
+                      <button onClick={() => openEditQuote(q)} className="flex-1 flex items-center justify-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-bold py-2 rounded-xl hover:bg-blue-100 transition-colors">
+                        <Pencil size={13} /> Editar
+                      </button>
                       {q.status === 'Pendente' && (
                         <>
                           <button onClick={() => changeQuoteStatus(q.id, 'Aprovado')} className="flex-1 flex items-center justify-center gap-1.5 bg-emerald-50 text-emerald-700 text-xs font-bold py-2 rounded-xl hover:bg-emerald-100 transition-colors">
@@ -673,6 +703,9 @@ const App: React.FC = () => {
                           <div className="flex items-center justify-end gap-2">
                             <button onClick={() => printQuote(q)} title="Gerar PDF" className="flex items-center gap-1.5 bg-slate-100 text-slate-600 text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-slate-200 transition-colors">
                               <Printer size={14} /> PDF
+                            </button>
+                            <button onClick={() => openEditQuote(q)} title="Editar" className="flex items-center gap-1.5 bg-blue-50 text-blue-700 text-xs font-bold px-3 py-1.5 rounded-xl hover:bg-blue-100 transition-colors">
+                              <Pencil size={14} /> Editar
                             </button>
                             {q.status === 'Pendente' && (
                               <>
@@ -890,12 +923,12 @@ const App: React.FC = () => {
       {showModal && (
         <div
           className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-50"
-          onClick={e => { if (e.target === e.currentTarget) setShowModal(false); }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowModal(false); setEditingQuoteId(null); } }}
         >
           <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
             <h2 className="text-xl md:text-2xl font-black mb-6">
-              {modalType === 'staff' ? 'Novo Profissional' : modalType === 'vehicle' ? 'Novo Veículo' : modalType === 'customer' ? 'Novo Cliente' : modalType === 'quote' ? 'Novo Orçamento' : 'Novo Serviço'}
+              {modalType === 'staff' ? 'Novo Profissional' : modalType === 'vehicle' ? 'Novo Veículo' : modalType === 'customer' ? 'Novo Cliente' : modalType === 'quote' ? (editingQuoteId ? 'Editar Orçamento' : 'Novo Orçamento') : 'Novo Serviço'}
             </h2>
             <div className="space-y-4">
               {modalType === 'staff' && (
@@ -1057,7 +1090,7 @@ const App: React.FC = () => {
                 </>
               )}
               <div className="flex gap-3 pt-4 border-t">
-                <button onClick={() => setShowModal(false)} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">Cancelar</button>
+                <button onClick={() => { setShowModal(false); setEditingQuoteId(null); }} className="flex-1 p-4 font-bold text-slate-400 hover:text-slate-600 transition-colors text-sm">Cancelar</button>
                 <button
                   onClick={modalType === 'quote' ? handleSaveQuote : handleSave}
                   className="flex-1 p-4 bg-blue-600 text-white rounded-2xl font-bold shadow-lg shadow-blue-200 hover:bg-blue-700 transition-all text-sm"
