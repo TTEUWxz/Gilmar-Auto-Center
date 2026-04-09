@@ -919,8 +919,27 @@ const App: React.FC = () => {
               {modalType === 'service' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
-                    <input placeholder="Nome do Cliente *" className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, clientName: e.target.value}))} />
-                    <input placeholder="Placa (Ex: ABC-1234) *" className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm uppercase" onChange={e => setFormData(f => ({...f, plate: e.target.value.toUpperCase()}))} />
+                    <AutocompleteInput
+                      placeholder="Nome do Cliente *"
+                      value={formData.clientName ?? ''}
+                      onChange={val => setFormData(f => ({ ...f, clientName: val }))}
+                      suggestions={customers.map(c => ({
+                        display: c.phone ? `${c.name}  ·  ${c.phone}` : c.name,
+                        value: c.name,
+                      }))}
+                    />
+                    <AutocompleteInput
+                      placeholder="Placa *"
+                      value={formData.plate ?? ''}
+                      onChange={val => setFormData(f => ({ ...f, plate: val }))}
+                      uppercase
+                      suggestions={vehicles
+                        .filter(v => v.plate)
+                        .map(v => ({
+                          display: `${v.plate}  ·  ${v.model}`,
+                          value: v.plate!,
+                        }))}
+                    />
                   </div>
                   <input placeholder="Descrição do Serviço" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, description: e.target.value}))} />
                   <input type="number" placeholder="Valor estimado (BRL)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, value: e.target.value}))} />
@@ -941,24 +960,44 @@ const App: React.FC = () => {
               {modalType === 'quote' && (
                 <>
                   {/* Cliente + Veículo */}
-                  <input
+                  <AutocompleteInput
                     placeholder="Nome do Cliente *"
                     value={quoteClient}
-                    onChange={e => setQuoteClient(e.target.value)}
-                    className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                    onChange={setQuoteClient}
+                    suggestions={customers.map(c => ({
+                      display: c.phone ? `${c.name}  ·  ${c.phone}` : c.name,
+                      value: c.name,
+                    }))}
                   />
                   <div className="grid grid-cols-2 gap-3">
-                    <input
-                      placeholder="Modelo (Ex: Civic 2022)"
+                    <AutocompleteInput
+                      placeholder="Modelo do Veículo"
                       value={quoteVehicle}
-                      onChange={e => setQuoteVehicle(e.target.value)}
-                      className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                      onChange={val => {
+                        setQuoteVehicle(val);
+                        const found = vehicles.find(v => v.model === val);
+                        if (found?.plate) setQuotePlate(found.plate);
+                      }}
+                      suggestions={vehicles.map(v => ({
+                        display: v.plate ? `${v.model}  ·  ${v.plate}` : v.model,
+                        value: v.model,
+                      }))}
                     />
-                    <input
-                      placeholder="Placa (Ex: ABC-1234)"
+                    <AutocompleteInput
+                      placeholder="Placa"
                       value={quotePlate}
-                      onChange={e => setQuotePlate(e.target.value)}
-                      className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                      onChange={val => {
+                        setQuotePlate(val);
+                        const found = vehicles.find(v => v.plate === val);
+                        if (found?.model) setQuoteVehicle(found.model);
+                      }}
+                      uppercase
+                      suggestions={vehicles
+                        .filter(v => v.plate)
+                        .map(v => ({
+                          display: `${v.plate}  ·  ${v.model}`,
+                          value: v.plate!,
+                        }))}
                     />
                   </div>
 
@@ -1157,6 +1196,53 @@ const QuoteStatusBadge: React.FC<QuoteStatusBadgeProps> = ({ status }) => {
     <span className="inline-flex items-center gap-1.5 bg-amber-50 text-amber-700 text-[10px] font-black px-2.5 py-1 rounded-full">
       <Clock size={10} /> Pendente
     </span>
+  );
+};
+
+// ---------------------------------------------------------------------------
+// AutocompleteInput
+// ---------------------------------------------------------------------------
+interface ACSuggestion { display: string; value: string; }
+interface AutocompleteInputProps {
+  placeholder: string;
+  value: string;
+  onChange: (val: string) => void;
+  suggestions: ACSuggestion[];
+  className?: string;
+  uppercase?: boolean;
+}
+const AutocompleteInput: React.FC<AutocompleteInputProps> = ({
+  placeholder, value, onChange, suggestions, className = '', uppercase = false,
+}) => {
+  const [open, setOpen] = React.useState(false);
+  const filtered = value.length === 0
+    ? suggestions.slice(0, 8)
+    : suggestions.filter(s => s.display.toLowerCase().includes(value.toLowerCase())).slice(0, 8);
+  return (
+    <div className="relative">
+      <input
+        placeholder={placeholder}
+        value={value}
+        onChange={e => onChange(uppercase ? e.target.value.toUpperCase() : e.target.value)}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className={`w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm focus:ring-2 focus:ring-blue-300 ${className}`}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-[70] top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-2xl overflow-hidden">
+          {filtered.map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onMouseDown={() => { onChange(s.value); setOpen(false); }}
+              className="w-full text-left px-4 py-2.5 text-sm font-bold hover:bg-blue-50 hover:text-blue-700 transition-colors border-b border-slate-50 last:border-0 truncate"
+            >
+              {s.display}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 };
 
