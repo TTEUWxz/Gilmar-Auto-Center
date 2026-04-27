@@ -63,22 +63,27 @@ interface Quote extends BaseItem {
   items: QuoteItem[]; total: number;
   status: 'Pendente' | 'Aprovado' | 'Recusado';
 }
+interface ClientRecord extends BaseItem {
+  name: string; phone?: string;
+  vehicleModel?: string; vehiclePlate?: string;
+  arrivedAt?: string;
+}
 
-type TabName   = 'dashboard' | 'services' | 'vehicles' | 'customers' | 'staff' | 'reports' | 'quotes';
-type ModalType = 'service' | 'vehicle' | 'customer' | 'staff' | 'quote';
+type TabName   = 'dashboard' | 'services' | 'clients' | 'vehicles' | 'customers' | 'staff' | 'reports' | 'quotes';
+type ModalType = 'service' | 'vehicle' | 'customer' | 'staff' | 'quote' | 'client';
 
 // ---------------------------------------------------------------------------
 // UI helpers
 // ---------------------------------------------------------------------------
 const getModalType = (tab: TabName): ModalType => {
   const map: Partial<Record<TabName, ModalType>> = {
-    staff: 'staff', vehicles: 'vehicle', customers: 'customer', quotes: 'quote',
+    staff: 'staff', vehicles: 'vehicle', customers: 'customer', quotes: 'quote', clients: 'client',
   };
   return map[tab] ?? 'service';
 };
 const getAddLabel = (tab: TabName) => {
   const map: Partial<Record<TabName, string>> = {
-    staff: 'Novo Mecânico', vehicles: 'Novo Veículo', customers: 'Novo Cliente', quotes: 'Novo Orçamento',
+    staff: 'Novo Mecânico', vehicles: 'Novo Veículo', customers: 'Novo Cliente', quotes: 'Novo Orçamento', clients: 'Novo Cadastro',
   };
   return map[tab] ?? 'Nova OS';
 };
@@ -104,10 +109,11 @@ const App: React.FC = () => {
   const [isSidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading]     = useState(true);
 
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [vehicles,  setVehicles]  = useState<Vehicle[]>([]);
-  const [services,  setServices]  = useState<Service[]>([]);
-  const [staff,     setStaff]     = useState<Staff[]>([]);
+  const [customers,      setCustomers]      = useState<Customer[]>([]);
+  const [vehicles,       setVehicles]       = useState<Vehicle[]>([]);
+  const [services,       setServices]       = useState<Service[]>([]);
+  const [staff,          setStaff]          = useState<Staff[]>([]);
+  const [clientRecords,  setClientRecords]  = useState<ClientRecord[]>([]);
 
   const [searchTerm,      setSearchTerm]      = useState('');
   const [serviceFilter,   setServiceFilter]   = useState<'Todos' | 'Pendente' | 'Entregue'>('Todos');
@@ -131,11 +137,39 @@ const App: React.FC = () => {
   const [editingQuoteId,  setEditingQuoteId]  = useState<string | null>(null);
 
   useEffect(() => {
-    setCustomers(getCol<Customer>('customers'));
-    setVehicles(getCol<Vehicle>('vehicles'));
+    const oldCustomers = getCol<Customer>('customers');
+    const oldVehicles  = getCol<Vehicle>('vehicles');
+    setCustomers(oldCustomers);
+    setVehicles(oldVehicles);
     setServices(getCol<Service>('services'));
     setStaff(getCol<Staff>('staff'));
     setQuotes(getCol<Quote>('quotes'));
+
+    // ── Migração: unir clientes + veículos em clientrecords ──
+    const existing = getCol<ClientRecord>('clientrecords');
+    if (existing.length > 0) {
+      setClientRecords(existing);
+    } else {
+      const migrated: ClientRecord[] = [
+        ...oldCustomers.map(c => ({
+          id: c.id, createdAt: c.createdAt,
+          name: c.name, phone: c.phone,
+          vehicleModel: '', vehiclePlate: '',
+          arrivedAt: c.createdAt?.substring(0, 10) || '',
+        })),
+        ...oldVehicles.map(v => ({
+          id: v.id, createdAt: v.createdAt,
+          name: v.model || 'Veículo',
+          vehicleModel: v.model, vehiclePlate: v.plate || '',
+          arrivedAt: v.createdAt?.substring(0, 10) || '',
+        })),
+      ];
+      if (migrated.length > 0) {
+        saveCol('clientrecords', migrated);
+        setClientRecords(migrated);
+      }
+    }
+
     setLoading(false);
   }, []);
 
@@ -207,7 +241,8 @@ const App: React.FC = () => {
   // ── CRUD ──
   const handleSave = () => {
     const colMap: Record<ModalType, string> = {
-      customer: 'customers', vehicle: 'vehicles', staff: 'staff', service: 'services', quote: 'quotes',
+      customer: 'customers', vehicle: 'vehicles', staff: 'staff',
+      service: 'services', quote: 'quotes', client: 'clientrecords',
     };
     const colName = colMap[modalType];
     const base = { ...formData, createdAt: new Date().toISOString() };
@@ -230,6 +265,14 @@ const App: React.FC = () => {
     } else if (modalType === 'vehicle') {
       const item = addItem(colName, { model: formData.model ?? '', plate: formData.plate ?? '', createdAt: base.createdAt });
       setVehicles(prev => [...prev, item as Vehicle]);
+    } else if (modalType === 'client') {
+      const item = addItem<Omit<ClientRecord, 'id'>>(colName, {
+        name: formData.name ?? '', phone: formData.phone ?? '',
+        vehicleModel: formData.vehicleModel ?? '', vehiclePlate: formData.vehiclePlate ?? '',
+        arrivedAt: formData.arrivedAt || new Date().toISOString().split('T')[0],
+        createdAt: base.createdAt,
+      });
+      setClientRecords(prev => [...prev, item as ClientRecord]);
     } else {
       const item = addItem(colName, { name: formData.name ?? '', phone: formData.phone ?? '', createdAt: base.createdAt });
       setCustomers(prev => [...prev, item as Customer]);
@@ -241,7 +284,7 @@ const App: React.FC = () => {
   const handleDelete = (id: string) => {
     const colMap: Record<TabName, string> = {
       services: 'services', staff: 'staff', vehicles: 'vehicles',
-      customers: 'customers', dashboard: '', reports: '', quotes: '',
+      customers: 'customers', clients: 'clientrecords', dashboard: '', reports: '', quotes: '',
     };
     const col = colMap[activeTab];
     if (!col) return;
@@ -250,6 +293,7 @@ const App: React.FC = () => {
     if (activeTab === 'staff')     setStaff(prev => prev.filter(i => i.id !== id));
     if (activeTab === 'vehicles')  setVehicles(prev => prev.filter(i => i.id !== id));
     if (activeTab === 'customers') setCustomers(prev => prev.filter(i => i.id !== id));
+    if (activeTab === 'clients')   setClientRecords(prev => prev.filter(i => i.id !== id));
   };
 
   // ── Entregar serviço (atualiza status + pagamento) ──
@@ -424,18 +468,26 @@ const App: React.FC = () => {
     if (activeTab === 'services')  return services;
     if (activeTab === 'staff')     return staff;
     if (activeTab === 'customers') return customers;
+    if (activeTab === 'clients')   return clientRecords;
     return vehicles;
   };
   const getTableHeaders = () => {
-    if (activeTab === 'staff')     return ['Profissional', 'Especialidade', 'Admitido em'];
-    if (activeTab === 'vehicles')  return ['Modelo', 'Placa', 'Cadastrado em'];
+    if (activeTab === 'staff')    return ['Profissional', 'Especialidade', 'Admitido em'];
+    if (activeTab === 'vehicles') return ['Modelo', 'Placa', 'Cadastrado em'];
     if (activeTab === 'customers') return ['Cliente', 'Telefone', 'Cadastrado em'];
+    if (activeTab === 'clients')  return ['Cliente · Telefone', 'Veículo · Placa', 'Chegada'];
     return ['Serviço / Cliente', 'Placa · Mecânico', 'Status'];
   };
   const getTableCells = (item: BaseItem) => {
     if (activeTab === 'staff')     { const s = item as Staff;     return [s.name, s.specialty || '-', s.createdAt?.substring(0,10) || '-']; }
     if (activeTab === 'vehicles')  { const v = item as Vehicle;   return [v.model, v.plate || '-', v.createdAt?.substring(0,10) || '-']; }
     if (activeTab === 'customers') { const c = item as Customer;  return [c.name, c.phone || '-', c.createdAt?.substring(0,10) || '-']; }
+    if (activeTab === 'clients') {
+      const cr = item as ClientRecord;
+      const namePhone = cr.phone ? `${cr.name}  ·  ${cr.phone}` : cr.name;
+      const vehicleInfo = [cr.vehicleModel, cr.vehiclePlate].filter(Boolean).join('  ·  ') || '—';
+      return [namePhone, vehicleInfo, cr.arrivedAt || '—'];
+    }
     const sv = item as Service;
     const svcTitle = sv.clientName ? `${sv.description} · ${sv.clientName}` : sv.description;
     const svcSub   = [sv.plate, sv.staffName || 'Sem mecânico'].filter(Boolean).join(' · ');
@@ -514,13 +566,12 @@ const App: React.FC = () => {
 
         {/* Nav */}
         <nav className="flex-1 px-4 py-6 space-y-1 overflow-y-auto">
-          <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard"  active={activeTab} onClick={handleTabChange} />
-          <NavItem id="services"  icon={Wrench}          label="Serviços"   active={activeTab} onClick={handleTabChange} />
-          <NavItem id="quotes"    icon={FileText}        label="Orçamentos" active={activeTab} onClick={handleTabChange} />
-          <NavItem id="vehicles"  icon={Car}             label="Veículos"   active={activeTab} onClick={handleTabChange} />
-          <NavItem id="staff"     icon={Briefcase}       label="Equipa"     active={activeTab} onClick={handleTabChange} />
-          <NavItem id="customers" icon={Users}           label="Clientes"   active={activeTab} onClick={handleTabChange} />
-          <NavItem id="reports"   icon={BarChart3}       label="Relatórios" active={activeTab} onClick={handleTabChange} />
+          <NavItem id="dashboard" icon={LayoutDashboard} label="Dashboard"        active={activeTab} onClick={handleTabChange} />
+          <NavItem id="services"  icon={Wrench}          label="Serviços"        active={activeTab} onClick={handleTabChange} />
+          <NavItem id="quotes"    icon={FileText}        label="Orçamentos"      active={activeTab} onClick={handleTabChange} />
+          <NavItem id="clients"   icon={Users}           label="Clientes & Carros" active={activeTab} onClick={handleTabChange} />
+          <NavItem id="staff"     icon={Briefcase}       label="Equipa"          active={activeTab} onClick={handleTabChange} />
+          <NavItem id="reports"   icon={BarChart3}       label="Relatórios"      active={activeTab} onClick={handleTabChange} />
         </nav>
 
         {/* ── Sessão / Logout ── */}
@@ -765,13 +816,13 @@ const App: React.FC = () => {
           )}
 
           {/* ── Tabela / Cards ── */}
-          {(['services', 'staff', 'vehicles', 'customers'] as TabName[]).includes(activeTab) && (
+          {(['services', 'staff', 'vehicles', 'customers', 'clients'] as TabName[]).includes(activeTab) && (
             <div className="bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
               {/* Barra de pesquisa */}
               <div className="p-3 md:p-4 border-b flex items-center bg-slate-50/50">
                 <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
                 <input
-                  placeholder={activeTab === 'services' ? 'Buscar por cliente, placa ou serviço...' : 'Procurar na base...'}
+                  placeholder={activeTab === 'services' ? 'Buscar por cliente, placa ou serviço...' : activeTab === 'clients' ? 'Buscar por nome, placa ou veículo...' : 'Procurar na base...'}
                   className="bg-transparent outline-none w-full font-medium text-sm"
                   onChange={e => setSearchTerm(e.target.value)}
                 />
@@ -884,7 +935,7 @@ const App: React.FC = () => {
           <BottomNavItem id="dashboard" icon={LayoutDashboard} label="Home"       active={activeTab} onClick={handleTabChange} />
           <BottomNavItem id="services"  icon={Wrench}          label="Serviços"   active={activeTab} onClick={handleTabChange} />
           <BottomNavItem id="quotes"    icon={FileText}        label="Orçamentos" active={activeTab} onClick={handleTabChange} />
-          <BottomNavItem id="vehicles"  icon={Car}             label="Veículos"   active={activeTab} onClick={handleTabChange} />
+          <BottomNavItem id="clients"   icon={Users}           label="Clientes"   active={activeTab} onClick={handleTabChange} />
           <button
             onClick={() => setSidebarOpen(true)}
             className="flex-1 flex flex-col items-center justify-center py-3 text-slate-400 hover:text-white transition-colors"
@@ -961,7 +1012,7 @@ const App: React.FC = () => {
           <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-lg shadow-2xl max-h-[92vh] overflow-y-auto">
             <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-6 md:hidden" />
             <h2 className="text-xl md:text-2xl font-black mb-6">
-              {modalType === 'staff' ? 'Novo Profissional' : modalType === 'vehicle' ? 'Novo Veículo' : modalType === 'customer' ? 'Novo Cliente' : modalType === 'quote' ? (editingQuoteId ? 'Editar Orçamento' : 'Novo Orçamento') : 'Novo Serviço'}
+              {modalType === 'staff' ? 'Novo Profissional' : modalType === 'vehicle' ? 'Novo Veículo' : modalType === 'customer' ? 'Novo Cliente' : modalType === 'client' ? 'Novo Cadastro' : modalType === 'quote' ? (editingQuoteId ? 'Editar Orçamento' : 'Novo Orçamento') : 'Novo Serviço'}
             </h2>
             <div className="space-y-4">
               {modalType === 'staff' && (
@@ -982,6 +1033,45 @@ const App: React.FC = () => {
                   <input placeholder="Telefone (Ex: 11 99999-9999)" className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm" onChange={e => setFormData(f => ({...f, phone: e.target.value}))} />
                 </>
               )}
+              {modalType === 'client' && (
+                <>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1">Dados do Cliente</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      placeholder="Nome do Cliente *"
+                      className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                      onChange={e => setFormData(f => ({...f, name: e.target.value}))}
+                    />
+                    <input
+                      placeholder="Telefone"
+                      className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                      onChange={e => setFormData(f => ({...f, phone: e.target.value}))}
+                    />
+                  </div>
+                  <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 pt-1">Dados do Veículo</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input
+                      placeholder="Modelo (Ex: Civic 2022)"
+                      className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm"
+                      onChange={e => setFormData(f => ({...f, vehicleModel: e.target.value}))}
+                    />
+                    <input
+                      placeholder="Placa (Ex: ABC-1234)"
+                      className="p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm uppercase"
+                      onChange={e => setFormData(f => ({...f, vehiclePlate: e.target.value.toUpperCase()}))}
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest ml-1 mb-2">Data de Chegada do Carro</p>
+                    <input
+                      type="date"
+                      defaultValue={new Date().toISOString().split('T')[0]}
+                      className="w-full p-4 bg-slate-50 rounded-2xl outline-none font-bold text-sm text-slate-700"
+                      onChange={e => setFormData(f => ({...f, arrivedAt: e.target.value}))}
+                    />
+                  </div>
+                </>
+              )}
               {modalType === 'service' && (
                 <>
                   <div className="grid grid-cols-2 gap-3">
@@ -989,9 +1079,9 @@ const App: React.FC = () => {
                       placeholder="Nome do Cliente *"
                       value={formData.clientName ?? ''}
                       onChange={val => setFormData(f => ({ ...f, clientName: val }))}
-                      suggestions={customers.map(c => ({
-                        display: c.phone ? `${c.name}  ·  ${c.phone}` : c.name,
-                        value: c.name,
+                      suggestions={clientRecords.map(cr => ({
+                        display: cr.phone ? `${cr.name}  ·  ${cr.phone}` : cr.name,
+                        value: cr.name,
                       }))}
                     />
                     <AutocompleteInput
@@ -999,11 +1089,11 @@ const App: React.FC = () => {
                       value={formData.plate ?? ''}
                       onChange={val => setFormData(f => ({ ...f, plate: val }))}
                       uppercase
-                      suggestions={vehicles
-                        .filter(v => v.plate)
-                        .map(v => ({
-                          display: `${v.plate}  ·  ${v.model}`,
-                          value: v.plate!,
+                      suggestions={clientRecords
+                        .filter(cr => cr.vehiclePlate)
+                        .map(cr => ({
+                          display: cr.vehicleModel ? `${cr.vehiclePlate}  ·  ${cr.vehicleModel}` : cr.vehiclePlate!,
+                          value: cr.vehiclePlate!,
                         }))}
                     />
                   </div>
@@ -1030,9 +1120,9 @@ const App: React.FC = () => {
                     placeholder="Nome do Cliente *"
                     value={quoteClient}
                     onChange={setQuoteClient}
-                    suggestions={customers.map(c => ({
-                      display: c.phone ? `${c.name}  ·  ${c.phone}` : c.name,
-                      value: c.name,
+                    suggestions={clientRecords.map(cr => ({
+                      display: cr.phone ? `${cr.name}  ·  ${cr.phone}` : cr.name,
+                      value: cr.name,
                     }))}
                   />
                   <div className="grid grid-cols-2 gap-3">
@@ -1041,12 +1131,12 @@ const App: React.FC = () => {
                       value={quoteVehicle}
                       onChange={val => {
                         setQuoteVehicle(val);
-                        const found = vehicles.find(v => v.model === val);
-                        if (found?.plate) setQuotePlate(found.plate);
+                        const found = clientRecords.find(cr => cr.vehicleModel === val);
+                        if (found?.vehiclePlate) setQuotePlate(found.vehiclePlate);
                       }}
-                      suggestions={vehicles.map(v => ({
-                        display: v.plate ? `${v.model}  ·  ${v.plate}` : v.model,
-                        value: v.model,
+                      suggestions={clientRecords.filter(cr => cr.vehicleModel).map(cr => ({
+                        display: cr.vehiclePlate ? `${cr.vehicleModel}  ·  ${cr.vehiclePlate}` : cr.vehicleModel!,
+                        value: cr.vehicleModel!,
                       }))}
                     />
                     <AutocompleteInput
@@ -1054,15 +1144,15 @@ const App: React.FC = () => {
                       value={quotePlate}
                       onChange={val => {
                         setQuotePlate(val);
-                        const found = vehicles.find(v => v.plate === val);
-                        if (found?.model) setQuoteVehicle(found.model);
+                        const found = clientRecords.find(cr => cr.vehiclePlate === val);
+                        if (found?.vehicleModel) setQuoteVehicle(found.vehicleModel);
                       }}
                       uppercase
-                      suggestions={vehicles
-                        .filter(v => v.plate)
-                        .map(v => ({
-                          display: `${v.plate}  ·  ${v.model}`,
-                          value: v.plate!,
+                      suggestions={clientRecords
+                        .filter(cr => cr.vehiclePlate)
+                        .map(cr => ({
+                          display: cr.vehicleModel ? `${cr.vehiclePlate}  ·  ${cr.vehicleModel}` : cr.vehiclePlate!,
+                          value: cr.vehiclePlate!,
                         }))}
                     />
                   </div>
