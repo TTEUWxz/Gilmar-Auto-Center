@@ -117,6 +117,8 @@ const App: React.FC = () => {
 
   const [searchTerm,      setSearchTerm]      = useState('');
   const [serviceFilter,   setServiceFilter]   = useState<'Todos' | 'Pendente' | 'Entregue'>('Todos');
+  const [reportPeriod,    setReportPeriod]    = useState<'mes' | 'tudo'>('mes');
+  const [expandedStaff,   setExpandedStaff]   = useState<string | null>(null);
   const [showModal,       setShowModal]        = useState(false);
   const [modalType,  setModalType]  = useState<ModalType>('service');
   const [formData,   setFormData]   = useState<Record<string, string>>({
@@ -676,42 +678,135 @@ const App: React.FC = () => {
           )}
 
           {/* ── Relatórios ── */}
-          {activeTab === 'reports' && (
-            <div className="space-y-6">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <StatBox title="Faturamento Mensal" value={formatBRL(reportData.monthly.total)} icon={DollarSign} color="text-emerald-500" />
-                <StatBox title="Serviços no Mês"   value={String(reportData.monthly.count)}    icon={Wrench}     color="text-blue-500"   />
-              </div>
-              <div className="bg-white p-5 md:p-8 rounded-3xl border border-slate-200 shadow-sm">
-                <h3 className="text-base font-black mb-5 flex items-center gap-2 text-blue-600">
-                  <Briefcase size={18} /> Produtividade da Equipa (Mensal)
-                </h3>
-                <div className="overflow-x-auto -mx-5 md:mx-0 px-5 md:px-0">
-                  <table className="w-full min-w-[360px]">
-                    <thead>
-                      <tr className="text-left text-[9px] font-black text-slate-400 uppercase tracking-widest border-b border-slate-100">
-                        <th className="pb-3">Profissional</th>
-                        <th className="pb-3">Qtd.</th>
-                        <th className="pb-3 text-right">Total</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-50">
-                      {Object.entries(reportData.monthly.staffPerf).map(([name, stats]) => (
-                        <tr key={name}>
-                          <td className="py-3 font-bold text-slate-700 text-sm">{name}</td>
-                          <td className="py-3 text-sm text-slate-500">{stats.count} serv.</td>
-                          <td className="py-3 text-right font-black text-slate-800 text-sm">{formatBRL(stats.total)}</td>
-                        </tr>
-                      ))}
-                      {Object.keys(reportData.monthly.staffPerf).length === 0 && (
-                        <tr><td colSpan={3} className="py-8 text-center text-slate-400 text-sm">Sem dados este mês.</td></tr>
-                      )}
-                    </tbody>
-                  </table>
+          {activeTab === 'reports' && (() => {
+            const todayStr = new Date().toISOString().split('T')[0];
+            const mesAtual = todayStr.substring(0, 7);
+            const servicosFiltrados = reportPeriod === 'mes'
+              ? services.filter(s => s.date?.substring(0, 7) === mesAtual)
+              : services;
+
+            // Agrupar serviços por mecânico
+            const porMecanico: Record<string, Service[]> = {};
+            servicosFiltrados.forEach(s => {
+              const nome = s.staffName || 'Sem Mecânico';
+              if (!porMecanico[nome]) porMecanico[nome] = [];
+              porMecanico[nome].push(s);
+            });
+
+            return (
+              <div className="space-y-6">
+                {/* Totais */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <StatBox title={reportPeriod === 'mes' ? 'Faturamento do Mês' : 'Faturamento Total'} value={formatBRL(servicosFiltrados.reduce((a, s) => a + (s.value ?? 0), 0))} icon={DollarSign} color="text-emerald-500" />
+                  <StatBox title={reportPeriod === 'mes' ? 'Serviços no Mês' : 'Total de Serviços'} value={String(servicosFiltrados.length)} icon={Wrench} color="text-blue-500" />
+                  <StatBox title="Mecânicos Ativos" value={String(Object.keys(porMecanico).length)} icon={UserCircle} color="text-purple-500" />
+                </div>
+
+                {/* Filtro de período */}
+                <div className="flex items-center gap-2">
+                  {(['mes', 'tudo'] as const).map(p => (
+                    <button
+                      key={p}
+                      onClick={() => setReportPeriod(p)}
+                      className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${reportPeriod === p ? 'bg-blue-600 text-white shadow' : 'bg-white border border-slate-200 text-slate-500 hover:border-blue-300'}`}
+                    >
+                      {p === 'mes' ? '📅 Este Mês' : '📂 Todo o Período'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Histórico por mecânico (acordeão) */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-black flex items-center gap-2 text-slate-800">
+                    <Briefcase size={18} className="text-blue-500" /> Histórico por Mecânico
+                  </h3>
+                  {Object.keys(porMecanico).length === 0 && (
+                    <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400 text-sm">
+                      Nenhum serviço encontrado no período.
+                    </div>
+                  )}
+                  {Object.entries(porMecanico)
+                    .sort((a, b) => b[1].length - a[1].length)
+                    .map(([nome, svcs]) => {
+                      const totalMec = svcs.reduce((a, s) => a + (s.value ?? 0), 0);
+                      const isOpen = expandedStaff === nome;
+                      return (
+                        <div key={nome} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                          {/* Cabeçalho do mecânico */}
+                          <button
+                            onClick={() => setExpandedStaff(isOpen ? null : nome)}
+                            className="w-full flex items-center justify-between p-4 md:p-5 hover:bg-slate-50 transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="bg-blue-100 text-blue-600 p-2.5 rounded-xl flex-shrink-0">
+                                <UserCircle size={20} />
+                              </div>
+                              <div>
+                                <p className="font-black text-slate-800 text-sm">{nome}</p>
+                                <p className="text-[11px] text-slate-400 mt-0.5">
+                                  {svcs.length} serviço{svcs.length !== 1 ? 's' : ''} · {formatBRL(totalMec)}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="hidden sm:block font-black text-emerald-600 text-sm">{formatBRL(totalMec)}</span>
+                              <span className={`text-slate-400 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}>▼</span>
+                            </div>
+                          </button>
+
+                          {/* Lista de serviços do mecânico */}
+                          {isOpen && (
+                            <div className="border-t border-slate-100">
+                              {/* Header desktop */}
+                              <div className="hidden md:grid grid-cols-5 gap-3 px-5 py-2 bg-slate-50 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                                <span className="col-span-2">Serviço · Cliente</span>
+                                <span>Placa</span>
+                                <span>Data</span>
+                                <span className="text-right">Valor · Status</span>
+                              </div>
+                              {svcs
+                                .slice()
+                                .sort((a, b) => (b.date || '').localeCompare(a.date || ''))
+                                .map(s => (
+                                  <div key={s.id} className="px-4 md:px-5 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50/50 transition-colors">
+                                    {/* Mobile */}
+                                    <div className="md:hidden">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                          <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
+                                          {s.clientName && <p className="text-xs text-slate-500 truncate">👤 {s.clientName}{s.plate ? ` · ${s.plate}` : ''}</p>}
+                                        </div>
+                                        <StatusBadge status={s.status} paymentMethod={s.paymentMethod} />
+                                      </div>
+                                      <div className="flex items-center justify-between mt-1.5">
+                                        <span className="text-[10px] text-slate-400 font-bold">📅 {s.date || '—'}</span>
+                                        <span className="font-black text-blue-600 text-sm">{formatBRL(s.value)}</span>
+                                      </div>
+                                    </div>
+                                    {/* Desktop */}
+                                    <div className="hidden md:grid grid-cols-5 gap-3 items-center">
+                                      <div className="col-span-2 min-w-0">
+                                        <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
+                                        {s.clientName && <p className="text-xs text-slate-400 truncate">{s.clientName}</p>}
+                                      </div>
+                                      <span className="text-xs font-bold text-slate-500">{s.plate || '—'}</span>
+                                      <span className="text-xs font-bold text-slate-500">{s.date || '—'}</span>
+                                      <div className="flex items-center justify-end gap-2">
+                                        <span className="font-black text-blue-600 text-sm">{formatBRL(s.value)}</span>
+                                        <StatusBadge status={s.status} paymentMethod={s.paymentMethod} />
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                 </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* ── Orçamentos ── */}
           {activeTab === 'quotes' && (
