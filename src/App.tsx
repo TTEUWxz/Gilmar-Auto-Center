@@ -119,6 +119,7 @@ const App: React.FC = () => {
   const [serviceFilter,   setServiceFilter]   = useState<'Todos' | 'Pendente' | 'Entregue'>('Todos');
   const [reportPeriod,    setReportPeriod]    = useState<'mes' | 'tudo'>('mes');
   const [expandedStaff,   setExpandedStaff]   = useState<string | null>(null);
+  const [selectedStaffName, setSelectedStaffName] = useState<string | null>(null);
   const [showModal,       setShowModal]        = useState(false);
   const [modalType,  setModalType]  = useState<ModalType>('service');
   const [formData,   setFormData]   = useState<Record<string, string>>({
@@ -645,7 +646,7 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-3">
                           <div className="bg-white p-2 rounded-full border border-slate-100 text-slate-400 flex-shrink-0"><UserCircle size={18} /></div>
                           <div className="min-w-0">
-                            <p className="font-bold text-slate-800 text-sm truncate">{s.name}</p>
+                            <button onClick={() => setSelectedStaffName(s.name)} className="font-bold text-slate-800 text-sm truncate text-left hover:text-blue-600 transition-colors block w-full">{s.name}</button>
                             <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{s.specialty || 'Mecânico Geral'}</p>
                           </div>
                         </div>
@@ -664,7 +665,10 @@ const App: React.FC = () => {
                           <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
                           <p className="text-[10px] text-slate-500 font-bold flex items-center mt-0.5">
                             <UserCircle size={11} className="mr-1 flex-shrink-0" />
-                            <span className="truncate">{s.staffName || 'Pendente'}</span>
+                            {s.staffName
+                              ? <button onClick={() => setSelectedStaffName(s.staffName)} className="truncate hover:text-blue-600 transition-colors">{s.staffName}</button>
+                              : <span className="truncate">Pendente</span>
+                            }
                           </p>
                         </div>
                         <span className="font-black text-slate-400 text-xs flex-shrink-0 ml-2">{s.date}</span>
@@ -952,7 +956,16 @@ const App: React.FC = () => {
                     <div key={item.id} className="flex items-center justify-between p-4">
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-slate-800 text-sm truncate">{cells[0]}</p>
-                        <p className="text-xs text-slate-500 mt-0.5 truncate">{cells[1]}</p>
+                        {isSvc && svc
+                          ? <p className="text-xs text-slate-500 mt-0.5 truncate">
+                              {svc.plate ? `${svc.plate} · ` : ''}
+                              {svc.staffName
+                                ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 transition-colors font-bold">{svc.staffName}</button>
+                                : 'Sem mecânico'
+                              }
+                            </p>
+                          : <p className="text-xs text-slate-500 mt-0.5 truncate">{cells[1]}</p>
+                        }
                         {isSvc && svc
                           ? <div className="mt-1"><StatusBadge status={svc.status} paymentMethod={svc.paymentMethod} /></div>
                           : <p className="text-[10px] text-slate-400 mt-0.5 uppercase font-bold">{cells[2]}</p>
@@ -996,7 +1009,15 @@ const App: React.FC = () => {
                             <td key={i} className={`p-6 text-sm ${i === 0 ? 'font-bold text-slate-800' : 'font-medium text-slate-500'}`}>
                               {isSvc && i === 2 && svc
                                 ? <StatusBadge status={svc.status} paymentMethod={svc.paymentMethod} />
-                                : cell}
+                                : isSvc && i === 1 && svc
+                                  ? <>
+                                      {svc.plate ? `${svc.plate} · ` : ''}
+                                      {svc.staffName
+                                        ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 transition-colors font-bold">{svc.staffName}</button>
+                                        : 'Sem mecânico'
+                                      }
+                                    </>
+                                  : cell}
                             </td>
                           ))}
                           <td className="p-6 text-right">
@@ -1324,6 +1345,77 @@ const App: React.FC = () => {
       {/* ══════════════════════════════════════════
           MODAL ENTREGA DO SERVIÇO
       ══════════════════════════════════════════ */}
+      {/* ══════════════════════════════════════════
+          MODAL HISTÓRICO DO MECÂNICO
+      ══════════════════════════════════════════ */}
+      {selectedStaffName && (
+        <div
+          className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]"
+          onClick={e => { if (e.target === e.currentTarget) setSelectedStaffName(null); }}
+        >
+          <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-8 w-full md:max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="w-10 h-1 bg-slate-200 rounded-full mx-auto mb-5 md:hidden" />
+
+            <div className="flex items-center justify-between mb-5">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-100 text-blue-600 p-2.5 rounded-xl">
+                  <UserCircle size={22} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-black text-slate-800">{selectedStaffName}</h2>
+                  <p className="text-xs text-slate-400 font-bold">Histórico de Serviços</p>
+                </div>
+              </div>
+              <button onClick={() => setSelectedStaffName(null)} className="p-2 text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            {(() => {
+              const staffSvcs = services
+                .filter(s => s.staffName === selectedStaffName)
+                .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+              const totalVal = staffSvcs.reduce((acc, s) => acc + (s.value ?? 0), 0);
+              return (
+                <>
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    <div className="bg-blue-50 rounded-2xl p-4 text-center">
+                      <p className="text-2xl font-black text-blue-600">{staffSvcs.length}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Serviços</p>
+                    </div>
+                    <div className="bg-emerald-50 rounded-2xl p-4 text-center">
+                      <p className="text-lg font-black text-emerald-600">{formatBRL(totalVal)}</p>
+                      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mt-1">Total Faturado</p>
+                    </div>
+                  </div>
+                  {staffSvcs.length === 0 ? (
+                    <p className="text-center text-slate-400 py-8 text-sm">Nenhum serviço registrado para este mecânico.</p>
+                  ) : (
+                    <div className="space-y-2">
+                      {staffSvcs.map(s => (
+                        <div key={s.id} className="bg-slate-50 rounded-2xl p-4 flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
+                            {s.clientName && (
+                              <p className="text-xs text-slate-500 mt-0.5 truncate">👤 {s.clientName}{s.plate ? ` · ${s.plate}` : ''}</p>
+                            )}
+                            <p className="text-[10px] text-slate-400 font-bold mt-1">📅 {s.date || '—'}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                            <span className="font-black text-blue-600 text-sm">{formatBRL(s.value)}</span>
+                            <StatusBadge status={s.status} paymentMethod={s.paymentMethod} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {showDeliveryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
           <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
