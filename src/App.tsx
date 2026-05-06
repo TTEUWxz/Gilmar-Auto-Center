@@ -646,7 +646,7 @@ const App: React.FC = () => {
                         <div className="flex items-center gap-3">
                           <div className="bg-white p-2 rounded-full border border-slate-100 text-slate-400 flex-shrink-0"><UserCircle size={18} /></div>
                           <div className="min-w-0">
-                            <button onClick={() => setSelectedStaffName(s.name)} className="font-bold text-slate-800 text-sm truncate text-left hover:text-blue-600 transition-colors block w-full">{s.name}</button>
+                            <button onClick={() => setSelectedStaffName(s.name)} className="font-bold text-slate-800 text-sm truncate text-left hover:text-blue-600 active:text-blue-700 transition-colors block w-full py-0.5">{s.name}</button>
                             <p className="text-[10px] text-slate-400 font-bold uppercase truncate">{s.specialty || 'Mecânico Geral'}</p>
                           </div>
                         </div>
@@ -663,13 +663,13 @@ const App: React.FC = () => {
                       <div key={s.id} className="flex items-center justify-between p-3 bg-slate-50 rounded-2xl border-l-4 border-blue-500">
                         <div className="min-w-0 flex-1">
                           <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
-                          <p className="text-[10px] text-slate-500 font-bold flex items-center mt-0.5">
+                          <div className="text-[10px] text-slate-500 font-bold flex items-center mt-0.5">
                             <UserCircle size={11} className="mr-1 flex-shrink-0" />
                             {s.staffName
-                              ? <button onClick={() => setSelectedStaffName(s.staffName)} className="truncate hover:text-blue-600 transition-colors">{s.staffName}</button>
+                              ? <button onClick={() => setSelectedStaffName(s.staffName)} className="truncate hover:text-blue-600 active:text-blue-700 transition-colors text-left">{s.staffName}</button>
                               : <span className="truncate">Pendente</span>
                             }
-                          </p>
+                          </div>
                         </div>
                         <span className="font-black text-slate-400 text-xs flex-shrink-0 ml-2">{s.date}</span>
                       </div>
@@ -957,13 +957,13 @@ const App: React.FC = () => {
                       <div className="min-w-0 flex-1">
                         <p className="font-bold text-slate-800 text-sm truncate">{cells[0]}</p>
                         {isSvc && svc
-                          ? <p className="text-xs text-slate-500 mt-0.5 truncate">
-                              {svc.plate ? `${svc.plate} · ` : ''}
+                          ? <div className="text-xs text-slate-500 mt-0.5 truncate flex items-center gap-1">
+                              {svc.plate && <span>{svc.plate} ·</span>}
                               {svc.staffName
-                                ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 transition-colors font-bold">{svc.staffName}</button>
-                                : 'Sem mecânico'
+                                ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 active:text-blue-700 transition-colors font-bold truncate text-left">{svc.staffName}</button>
+                                : <span>Sem mecânico</span>
                               }
-                            </p>
+                            </div>
                           : <p className="text-xs text-slate-500 mt-0.5 truncate">{cells[1]}</p>
                         }
                         {isSvc && svc
@@ -1010,13 +1010,13 @@ const App: React.FC = () => {
                               {isSvc && i === 2 && svc
                                 ? <StatusBadge status={svc.status} paymentMethod={svc.paymentMethod} />
                                 : isSvc && i === 1 && svc
-                                  ? <>
-                                      {svc.plate ? `${svc.plate} · ` : ''}
+                                  ? <span className="flex items-center gap-1">
+                                      {svc.plate && <span>{svc.plate} ·</span>}
                                       {svc.staffName
-                                        ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 transition-colors font-bold">{svc.staffName}</button>
-                                        : 'Sem mecânico'
+                                        ? <button onClick={() => setSelectedStaffName(svc.staffName)} className="hover:text-blue-600 active:text-blue-700 transition-colors font-bold text-left">{svc.staffName}</button>
+                                        : <span>Sem mecânico</span>
                                       }
-                                    </>
+                                    </span>
                                   : cell}
                             </td>
                           ))}
