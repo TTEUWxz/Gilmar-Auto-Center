@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import {
-  LayoutDashboard, Users, Car, Wrench, Plus, Search,
+  LayoutDashboard, Users, Wrench, Plus, Search,
   Trash2, DollarSign, Loader2, BarChart3,
   UserCircle, Briefcase, Menu, X, Lock, Eye, EyeOff, KeyRound, LogOut,
-  CheckCircle, Clock, CreditCard, FileText, PlusCircle, MinusCircle, Printer,
+  CheckCircle, Clock, FileText, PlusCircle, MinusCircle, Printer,
   ThumbsUp, ThumbsDown, Pencil
 } from 'lucide-react';
 
@@ -86,6 +86,14 @@ const getAddLabel = (tab: TabName) => {
     staff: 'Novo Mecânico', vehicles: 'Novo Veículo', customers: 'Novo Cliente', quotes: 'Novo Orçamento', clients: 'Novo Cadastro',
   };
   return map[tab] ?? 'Nova OS';
+};
+const getTabLabel = (tab: TabName) => {
+  const map: Record<TabName, string> = {
+    dashboard: 'Dashboard', services: 'Serviços', quotes: 'Orçamentos',
+    clients: 'Clientes & Carros', staff: 'Equipa', reports: 'Relatórios',
+    vehicles: 'Veículos', customers: 'Clientes',
+  };
+  return map[tab] ?? tab;
 };
 const formatBRL = (val?: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(val ?? 0);
@@ -217,6 +225,7 @@ const App: React.FC = () => {
   const handleTabChange = (tab: TabName) => {
     setActiveTab(tab);
     setSidebarOpen(false);
+    setSearchTerm('');
   };
 
   // ── Reports ──
@@ -243,6 +252,13 @@ const App: React.FC = () => {
 
   // ── CRUD ──
   const handleSave = () => {
+    // Validação básica
+    if (modalType === 'service' && !formData.description?.trim()) return;
+    if (modalType === 'staff' && !formData.name?.trim()) return;
+    if (modalType === 'vehicle' && !formData.model?.trim()) return;
+    if (modalType === 'client' && !formData.name?.trim()) return;
+    if (modalType === 'customer' && !formData.name?.trim()) return;
+
     const colMap: Record<ModalType, string> = {
       customer: 'customers', vehicle: 'vehicles', staff: 'staff',
       service: 'services', quote: 'quotes', client: 'clientrecords',
@@ -615,12 +631,12 @@ const App: React.FC = () => {
               </button>
               <div>
                 <h2 className="text-blue-600 font-bold text-[9px] uppercase tracking-widest mb-0.5">Gilmar Auto Center</h2>
-                <h1 className="text-xl md:text-3xl font-black text-slate-800 tracking-tight capitalize">{activeTab}</h1>
+                <h1 className="text-xl md:text-3xl font-black text-slate-800 tracking-tight">{getTabLabel(activeTab)}</h1>
               </div>
             </div>
             {!['dashboard', 'reports'].includes(activeTab) && (
               <button
-                onClick={() => { setModalType(getModalType(activeTab)); setShowModal(true); }}
+                onClick={() => { setModalType(getModalType(activeTab)); setFormData({ paymentMethod: 'Dinheiro', staffName: '' }); setShowModal(true); }}
                 className="bg-blue-600 text-white px-4 md:px-6 py-2 md:py-2.5 rounded-xl font-bold flex items-center gap-2 shadow-lg hover:bg-blue-700 transition-all text-sm"
               >
                 <Plus size={18} />
@@ -815,6 +831,16 @@ const App: React.FC = () => {
           {/* ── Orçamentos ── */}
           {activeTab === 'quotes' && (
             <div className="space-y-4">
+              {/* Mobile search */}
+              <div className="md:hidden bg-white rounded-2xl border border-slate-200 shadow-sm flex items-center p-3">
+                <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
+                <input
+                  placeholder="Procurar orçamentos..."
+                  className="bg-transparent outline-none w-full font-medium text-sm"
+                  value={searchTerm}
+                  onChange={e => setSearchTerm(e.target.value)}
+                />
+              </div>
               {/* Mobile cards */}
               <div className="md:hidden space-y-3">
                 {quotes.filter(q => JSON.stringify(q).toLowerCase().includes(searchTerm.toLowerCase())).map(q => (
@@ -860,7 +886,7 @@ const App: React.FC = () => {
               <div className="hidden md:block bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-4 border-b flex items-center bg-slate-50/50">
                   <Search className="text-slate-300 mr-2 flex-shrink-0" size={18} />
-                  <input placeholder="Procurar orçamentos..." className="bg-transparent outline-none w-full font-medium text-sm" onChange={e => setSearchTerm(e.target.value)} />
+                  <input placeholder="Procurar orçamentos..." className="bg-transparent outline-none w-full font-medium text-sm" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
                 </div>
                 <table className="w-full text-left">
                   <thead className="bg-slate-50 text-[10px] font-black uppercase text-slate-400">
@@ -1343,9 +1369,6 @@ const App: React.FC = () => {
       )}
 
       {/* ══════════════════════════════════════════
-          MODAL ENTREGA DO SERVIÇO
-      ══════════════════════════════════════════ */}
-      {/* ══════════════════════════════════════════
           MODAL HISTÓRICO DO MECÂNICO
       ══════════════════════════════════════════ */}
       {selectedStaffName && (
@@ -1416,6 +1439,9 @@ const App: React.FC = () => {
         </div>
       )}
 
+      {/* ══════════════════════════════════════════
+          MODAL ENTREGA DO SERVIÇO
+      ══════════════════════════════════════════ */}
       {showDeliveryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-end md:items-center justify-center p-0 md:p-4 z-[60]">
           <div className="bg-white rounded-t-3xl md:rounded-[32px] p-6 md:p-10 w-full md:max-w-sm shadow-2xl">
