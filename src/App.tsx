@@ -62,6 +62,9 @@ interface Quote extends BaseItem {
   clientName: string; vehicleModel: string; vehiclePlate: string;
   items: QuoteItem[]; total: number;
   status: 'Pendente' | 'Aprovado' | 'Recusado';
+  address?: string; phone?: string; email?: string;
+  km?: string; yearModel?: string; discount?: number;
+  observations?: string; paymentConditions?: string; validDays?: string;
 }
 interface ClientRecord extends BaseItem {
   name: string; phone?: string;
@@ -145,6 +148,15 @@ const App: React.FC = () => {
   const [quoteVehicle,    setQuoteVehicle]    = useState('');
   const [quotePlate,      setQuotePlate]      = useState('');
   const [quoteItems,      setQuoteItems]      = useState<QuoteItem[]>([{ description: '', qty: 1, unitValue: 0 }]);
+  const [quoteAddress,       setQuoteAddress]       = useState('');
+  const [quotePhone,         setQuotePhone]         = useState('');
+  const [quoteEmail,         setQuoteEmail]         = useState('');
+  const [quoteKm,            setQuoteKm]            = useState('');
+  const [quoteYearModel,     setQuoteYearModel]     = useState('');
+  const [quoteDiscount,      setQuoteDiscount]      = useState('');
+  const [quoteObservations,  setQuoteObservations]  = useState('');
+  const [quotePayment,       setQuotePayment]       = useState('');
+  const [quoteValidDays,     setQuoteValidDays]     = useState('');
   const [editingQuoteId,  setEditingQuoteId]  = useState<string | null>(null);
 
   useEffect(() => {
@@ -342,6 +354,15 @@ const App: React.FC = () => {
     setQuoteVehicle(q.vehicleModel);
     setQuotePlate(q.vehiclePlate);
     setQuoteItems(q.items.length > 0 ? q.items : [{ description: '', qty: 1, unitValue: 0 }]);
+    setQuoteAddress(q.address ?? '');
+    setQuotePhone(q.phone ?? '');
+    setQuoteEmail(q.email ?? '');
+    setQuoteKm(q.km ?? '');
+    setQuoteYearModel(q.yearModel ?? '');
+    setQuoteDiscount(q.discount !== undefined ? String(q.discount) : '');
+    setQuoteObservations(q.observations ?? '');
+    setQuotePayment(q.paymentConditions ?? '');
+    setQuoteValidDays(q.validDays ?? '');
     setModalType('quote');
     setShowModal(true);
   };
@@ -350,22 +371,27 @@ const App: React.FC = () => {
   const handleSaveQuote = () => {
     const validItems = quoteItems.filter(i => i.description.trim() !== '');
     if (!quoteClient.trim() || validItems.length === 0) return;
-    const total = validItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0);
+    const subtotal = validItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0);
+    const discountVal = parseFloat(quoteDiscount) || 0;
+    const total = Math.max(0, subtotal - discountVal);
+    const extra = {
+      address: quoteAddress, phone: quotePhone, email: quoteEmail,
+      km: quoteKm, yearModel: quoteYearModel, discount: discountVal,
+      observations: quoteObservations, paymentConditions: quotePayment, validDays: quoteValidDays,
+    };
 
     if (editingQuoteId) {
-      // Editar existente
       const updated = quotes.map(q =>
         q.id === editingQuoteId
-          ? { ...q, clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate, items: validItems, total }
+          ? { ...q, clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate, items: validItems, total, ...extra }
           : q
       );
       setQuotes(updated);
       saveCol('quotes', updated);
     } else {
-      // Novo orçamento
       const newQuote = addItem<Omit<Quote, 'id'>>('quotes', {
         clientName: quoteClient, vehicleModel: quoteVehicle, vehiclePlate: quotePlate,
-        items: validItems, total, status: 'Pendente', createdAt: new Date().toISOString(),
+        items: validItems, total, status: 'Pendente', createdAt: new Date().toISOString(), ...extra,
       });
       setQuotes(prev => [...prev, newQuote as Quote]);
     }
@@ -374,6 +400,9 @@ const App: React.FC = () => {
     setEditingQuoteId(null);
     setQuoteClient(''); setQuoteVehicle(''); setQuotePlate('');
     setQuoteItems([{ description: '', qty: 1, unitValue: 0 }]);
+    setQuoteAddress(''); setQuotePhone(''); setQuoteEmail('');
+    setQuoteKm(''); setQuoteYearModel(''); setQuoteDiscount('');
+    setQuoteObservations(''); setQuotePayment(''); setQuoteValidDays('');
   };
 
   // ── Orçamento: mudar status ──
@@ -392,65 +421,201 @@ const App: React.FC = () => {
 
   // ── Orçamento: gerar PDF (abre janela de impressão) ──
   const printQuote = (quote: Quote) => {
-    const rows = quote.items.map(i => `
+    const subtotal = quote.items.reduce((acc, i) => acc + i.qty * i.unitValue, 0);
+    const discountVal = quote.discount ?? 0;
+    const total = Math.max(0, subtotal - discountVal);
+    const quoteNum = quote.id.slice(-6).toUpperCase();
+    const dateStr = new Date(quote.createdAt).toLocaleDateString('pt-BR');
+
+    const TOTAL_ROWS = 10;
+    const dataRows = quote.items.slice(0, TOTAL_ROWS);
+    const emptyCount = TOTAL_ROWS - dataRows.length;
+    const itemRows = dataRows.map((i, idx) => `
       <tr>
-        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9">${i.description}</td>
-        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:center">${i.qty}</td>
-        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:right">${formatBRL(i.unitValue)}</td>
-        <td style="padding:10px 8px;border-bottom:1px solid #f1f5f9;text-align:right;font-weight:700">${formatBRL(i.qty * i.unitValue)}</td>
+        <td class="td-item">${idx + 1}</td>
+        <td class="td-desc">${i.description}</td>
+        <td class="td-num">${i.qty}</td>
+        <td class="td-num">${formatBRL(i.unitValue)}</td>
+        <td class="td-num">${formatBRL(i.qty * i.unitValue)}</td>
       </tr>`).join('');
+    const emptyRows = Array(emptyCount).fill(`
+      <tr>
+        <td class="td-item">&nbsp;</td>
+        <td class="td-desc"></td>
+        <td class="td-num"></td>
+        <td class="td-num"></td>
+        <td class="td-num"></td>
+      </tr>`).join('');
+
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-      <title>Orçamento – Gilmar Auto Center</title>
+      <title>Nota de Orçamento – Gilmar Auto Center</title>
       <style>
-        *{margin:0;padding:0;box-sizing:border-box} body{font-family:Arial,sans-serif;color:#1e293b;padding:40px;font-size:13px}
-        .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:36px;padding-bottom:24px;border-bottom:3px solid #1B3155}
-        .logo-text{line-height:1.1} .logo-text .brand{font-size:28px;font-weight:900;letter-spacing:2px;color:#1B3155} .logo-text .sub{font-size:13px;font-weight:700;letter-spacing:8px;color:#1B3155} .logo-text .tagline{font-size:10px;font-weight:400;color:#64748b;margin-top:3px}
-        .info-block{background:#f8fafc;border-radius:12px;padding:16px;margin-bottom:20px}
-        .info-block h3{font-size:10px;text-transform:uppercase;letter-spacing:2px;color:#64748b;margin-bottom:10px}
-        .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
-        .info-row label{font-size:10px;color:#94a3b8;display:block} .info-row p{font-weight:700;font-size:14px}
-        table{width:100%;border-collapse:collapse;margin-top:8px}
-        thead tr{background:#1B3155;color:white} thead th{padding:12px 8px;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:1px}
-        thead th:nth-child(2){text-align:center} thead th:nth-child(3),thead th:nth-child(4){text-align:right}
-        .total-row{background:#eef2ff} .total-row td{padding:14px 8px;font-size:15px;font-weight:900;color:#1B3155;text-align:right}
-        .total-row td:first-child{text-align:left;color:#1e293b}
-        .footer{margin-top:40px;padding-top:20px;border-top:1px solid #e2e8f0;display:flex;justify-content:space-between;font-size:11px;color:#94a3b8}
-        @media print{body{padding:20px}}
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:Arial,sans-serif;color:#000;font-size:12px;padding:28px 32px;background:#fff}
+        /* HEADER */
+        .header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:12px}
+        .logo-wrap{display:flex;flex-direction:column;gap:2px}
+        .logo-brand{font-size:36px;font-weight:900;color:#cc0000;letter-spacing:1px;line-height:1}
+        .logo-sub{font-size:13px;font-weight:800;letter-spacing:6px;color:#1a1a2e;border-top:2px solid #cc0000;border-bottom:2px solid #cc0000;padding:2px 0;margin-top:2px}
+        .logo-car{font-size:9px;color:#555;margin-top:2px}
+        .header-right{text-align:right}
+        .nota-title{font-size:22px;font-weight:900;text-transform:uppercase;letter-spacing:1px}
+        .header-fields{margin-top:8px;font-size:11px;border:1px solid #ccc}
+        .header-fields tr td{padding:4px 8px;border-bottom:1px solid #ccc}
+        .header-fields tr:last-child td{border-bottom:none}
+        .header-fields td:first-child{font-weight:700;white-space:nowrap}
+        .header-fields td:last-child{min-width:160px;border-bottom:1px solid #aaa}
+        /* CLIENT SECTION */
+        .client-section{border:1px solid #ccc;padding:8px 12px;margin-bottom:10px;font-size:11px}
+        .client-row{display:flex;align-items:baseline;gap:4px;border-bottom:1px solid #ddd;padding:4px 0}
+        .client-row:last-child{border-bottom:none}
+        .client-label{font-weight:700;white-space:nowrap;min-width:75px}
+        .client-value{flex:1;border-bottom:1px solid #999;min-height:16px}
+        .client-half{display:flex;gap:16px;flex:1}
+        .client-half .client-sub{display:flex;align-items:baseline;gap:4px;flex:1}
+        .client-half .client-sub .client-label{min-width:60px}
+        /* TABLE */
+        .items-table{width:100%;border-collapse:collapse;margin-bottom:10px;font-size:11px;position:relative}
+        .items-table thead tr{background:#1a1a2e;color:#fff}
+        .items-table thead th{padding:7px 6px;text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;border:1px solid #1a1a2e}
+        .items-table th.th-num,.items-table td.td-num{text-align:center}
+        .items-table td.td-item{text-align:center;width:40px}
+        .items-table td.td-desc{width:auto}
+        .items-table td{padding:7px 6px;border:1px solid #ccc;height:26px}
+        .watermark{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-20deg);font-size:52px;font-weight:900;color:rgba(0,0,0,0.06);text-align:center;pointer-events:none;line-height:1.1;white-space:nowrap}
+        .table-wrap{position:relative}
+        /* FOOTER SECTION */
+        .footer-section{display:flex;gap:10px;margin-bottom:10px}
+        .footer-left{flex:1.2;border:1px solid #ccc;padding:8px 10px;font-size:11px}
+        .footer-left .fl-label{font-weight:700;font-size:11px;margin-bottom:4px;display:block}
+        .obs-line{border-bottom:1px solid #999;height:18px;margin-bottom:4px}
+        .pagamento-line{border-bottom:1px solid #999;height:18px;margin-top:4px}
+        .validade{font-size:11px;margin-top:8px}
+        .footer-right{flex:.8;display:flex;flex-direction:column;gap:0}
+        .totals-box{border:1px solid #ccc;font-size:11px}
+        .totals-row{display:flex;border-bottom:1px solid #ccc}
+        .totals-row:last-child{border-bottom:none}
+        .totals-label{font-weight:700;padding:6px 10px;flex:1;background:#f0f0f0;text-transform:uppercase;font-size:11px}
+        .totals-value{padding:6px 10px;min-width:110px;border-left:1px solid #ccc}
+        .totals-row.total-final .totals-label,.totals-row.total-final .totals-value{background:#e8e8e8;font-weight:900}
+        .signature-box{margin-top:auto;padding-top:30px;text-align:right;font-size:10px;color:#555}
+        .sig-line{border-top:1px solid #000;width:100%;margin-bottom:4px}
+        /* BOTTOM BAR */
+        .bottom-bar{border-top:3px solid #cc0000;padding-top:8px;display:flex;justify-content:space-between;font-size:10.5px;color:#222;margin-top:4px}
+        .bottom-item{display:flex;align-items:center;gap:6px}
+        .bottom-item b{font-size:11px}
+        .bottom-icon{font-size:14px}
+        @media print{body{padding:10px 14px}@page{margin:8mm}}
       </style></head><body>
+
+      <!-- HEADER -->
       <div class="header">
-        <div class="logo-text">
-          <div class="brand">GILMAR</div>
-          <div class="sub">AUTO CENTER</div>
-          <div class="tagline">(21) 96421-6563 / 97535-6318</div>
+        <div class="logo-wrap">
+          <div class="logo-brand">GILMAR</div>
+          <div class="logo-sub">— AUTO CENTER —</div>
         </div>
-        <div style="text-align:right">
-          <p style="font-size:10px;color:#94a3b8;text-transform:uppercase;letter-spacing:1px">Orçamento Nº</p>
-          <p style="font-size:22px;font-weight:900;color:#2563eb">#${quote.id.slice(-6).toUpperCase()}</p>
-          <p style="color:#64748b;margin-top:4px">${new Date(quote.createdAt).toLocaleDateString('pt-BR')}</p>
-        </div>
-      </div>
-      <div class="info-block">
-        <h3>Dados do Cliente &amp; Veículo</h3>
-        <div class="info-grid">
-          <div class="info-row"><label>Cliente</label><p>${quote.clientName}</p></div>
-          <div class="info-row"><label>Veículo</label><p>${quote.vehicleModel || '—'}</p></div>
-          <div class="info-row"><label>Placa</label><p>${quote.vehiclePlate || '—'}</p></div>
+        <div class="header-right">
+          <div class="nota-title">Nota de Orçamento</div>
+          <table class="header-fields">
+            <tr><td>Nº do Orçamento:</td><td>${quoteNum}</td></tr>
+            <tr><td>Data:</td><td>${dateStr}</td></tr>
+          </table>
         </div>
       </div>
-      <table><thead><tr>
-        <th>Descrição do Serviço</th><th style="text-align:center">Qtd.</th>
-        <th style="text-align:right">Valor Unit.</th><th style="text-align:right">Total</th>
-      </tr></thead><tbody>
-        ${rows}
-        <tr class="total-row">
-          <td colspan="3">Total do Orçamento</td>
-          <td>${formatBRL(quote.total)}</td>
-        </tr>
-      </tbody></table>
-      <div class="footer">
-        <span>Gilmar Auto Center – (21) 96421-6563 / 97535-6318</span>
-        <span>Gerado em ${new Date().toLocaleDateString('pt-BR', { dateStyle: 'long' })}</span>
+
+      <!-- DADOS DO CLIENTE -->
+      <div class="client-section">
+        <div class="client-row">
+          <span class="client-label">Cliente:</span>
+          <span class="client-value">${quote.clientName}</span>
+        </div>
+        <div class="client-row">
+          <span class="client-label">Endereço:</span>
+          <span class="client-value">${quote.address ?? ''}</span>
+        </div>
+        <div class="client-row">
+          <div class="client-half">
+            <div class="client-sub"><span class="client-label">Telefone:</span><span class="client-value">${quote.phone ?? ''}</span></div>
+            <div class="client-sub"><span class="client-label">E-mail:</span><span class="client-value">${quote.email ?? ''}</span></div>
+          </div>
+        </div>
+        <div class="client-row">
+          <div class="client-half">
+            <div class="client-sub"><span class="client-label">Veículo:</span><span class="client-value">${quote.vehicleModel ?? ''}</span></div>
+            <div class="client-sub"><span class="client-label">Placa:</span><span class="client-value">${quote.vehiclePlate ?? ''}</span></div>
+          </div>
+        </div>
+        <div class="client-row">
+          <div class="client-half">
+            <div class="client-sub"><span class="client-label">Km:</span><span class="client-value">${quote.km ?? ''}</span></div>
+            <div class="client-sub"><span class="client-label">Ano/Modelo:</span><span class="client-value">${quote.yearModel ?? ''}</span></div>
+          </div>
+        </div>
       </div>
+
+      <!-- TABELA DE ITENS -->
+      <div class="table-wrap">
+        <div class="watermark">POR<br>GILMAR<br>AUTO CENTER</div>
+        <table class="items-table">
+          <thead>
+            <tr>
+              <th style="width:40px;text-align:center">Item</th>
+              <th>Descrição dos Serviços / Peças</th>
+              <th style="width:60px;text-align:center">Qtd.</th>
+              <th style="width:100px;text-align:center">Valor Unit.</th>
+              <th style="width:100px;text-align:center">Valor Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${itemRows}
+            ${emptyRows}
+          </tbody>
+        </table>
+      </div>
+
+      <!-- RODAPÉ: observações + totais -->
+      <div class="footer-section">
+        <div class="footer-left">
+          <span class="fl-label">Observações:</span>
+          <div class="obs-line">${quote.observations ?? ''}</div>
+          <div class="obs-line"></div>
+          <div class="obs-line"></div>
+          <br>
+          <span class="fl-label">Condições de Pagamento:</span>
+          <div class="pagamento-line">${quote.paymentConditions ?? ''}</div>
+          <div class="validade">Orçamento válido por <u>&nbsp;&nbsp;${quote.validDays ?? '___'}&nbsp;&nbsp;</u> dias.</div>
+        </div>
+        <div class="footer-right">
+          <div class="totals-box">
+            <div class="totals-row">
+              <span class="totals-label">Subtotal</span>
+              <span class="totals-value">R$ ${subtotal.toFixed(2).replace('.',',')}</span>
+            </div>
+            <div class="totals-row">
+              <span class="totals-label">Desconto</span>
+              <span class="totals-value">R$ ${discountVal.toFixed(2).replace('.',',')}</span>
+            </div>
+            <div class="totals-row total-final">
+              <span class="totals-label">Total</span>
+              <span class="totals-value">R$ ${total.toFixed(2).replace('.',',')}</span>
+            </div>
+          </div>
+          <div class="signature-box">
+            <div class="sig-line"></div>
+            Assinatura / Carimbo
+          </div>
+        </div>
+      </div>
+
+      <!-- BARRA INFERIOR -->
+      <div class="bottom-bar">
+        <div style="display:flex;gap:28px">
+          <div class="bottom-item"><span class="bottom-icon">🏢</span><span><b>CNPJ</b> 21.768.154/0001-06</span></div>
+          <div class="bottom-item"><span class="bottom-icon">✉️</span><span><b>E-mail:</b> Gilmaromegar@gmail.com</span></div>
+        </div>
+        <div class="bottom-item"><span class="bottom-icon">📍</span><div><b>Endereço:</b><br>Estrada do Teixeira , lote 01, quadra 13 - vista alegre</div></div>
+      </div>
+
       <script>window.onload=()=>{window.print()}<\/script></body></html>`;
     const win = window.open('', '_blank');
     if (win) { win.document.write(html); win.document.close(); }
@@ -1267,6 +1432,11 @@ const App: React.FC = () => {
                       value: cr.name,
                     }))}
                   />
+                  <input placeholder="Endereço" value={quoteAddress} onChange={e => setQuoteAddress(e.target.value)} className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
+                  <div className="grid grid-cols-2 gap-3">
+                    <input placeholder="Telefone" value={quotePhone} onChange={e => setQuotePhone(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
+                    <input placeholder="E-mail" value={quoteEmail} onChange={e => setQuoteEmail(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
+                  </div>
                   <div className="grid grid-cols-2 gap-3">
                     <AutocompleteInput
                       placeholder="Modelo do Veículo"
@@ -1297,6 +1467,10 @@ const App: React.FC = () => {
                           value: cr.vehiclePlate!,
                         }))}
                     />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <input placeholder="Km" value={quoteKm} onChange={e => setQuoteKm(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
+                    <input placeholder="Ano/Modelo" value={quoteYearModel} onChange={e => setQuoteYearModel(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
                   </div>
 
                   {/* Itens do orçamento */}
@@ -1345,12 +1519,37 @@ const App: React.FC = () => {
                     </div>
                   </div>
 
+                  {/* Desconto */}
+                  <input
+                    type="number"
+                    placeholder="Desconto (R$)"
+                    value={quoteDiscount}
+                    min={0}
+                    onChange={e => setQuoteDiscount(e.target.value)}
+                    className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm"
+                  />
+
                   {/* Total */}
                   <div className="flex justify-between items-center bg-blue-50 rounded-2xl p-4 border border-blue-100">
                     <span className="text-sm font-black text-slate-600">Total do Orçamento</span>
                     <span className="text-lg font-black text-blue-600">
-                      {formatBRL(quoteItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0))}
+                      {formatBRL(Math.max(0, quoteItems.reduce((acc, i) => acc + i.qty * i.unitValue, 0) - (parseFloat(quoteDiscount) || 0)))}
                     </span>
+                  </div>
+
+                  {/* Observações */}
+                  <textarea
+                    placeholder="Observações"
+                    value={quoteObservations}
+                    onChange={e => setQuoteObservations(e.target.value)}
+                    rows={2}
+                    className="w-full p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm resize-none"
+                  />
+
+                  {/* Condições de pagamento + validade */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <input placeholder="Condições de Pagamento" value={quotePayment} onChange={e => setQuotePayment(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
+                    <input placeholder="Válido por (dias)" value={quoteValidDays} onChange={e => setQuoteValidDays(e.target.value)} className="p-3 bg-slate-50 rounded-xl outline-none font-bold text-sm" />
                   </div>
                 </>
               )}
