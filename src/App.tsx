@@ -130,6 +130,8 @@ const App: React.FC = () => {
   const [serviceFilter,   setServiceFilter]   = useState<'Todos' | 'Pendente' | 'Entregue'>('Todos');
   const [reportPeriod,    setReportPeriod]    = useState<'mes' | 'tudo'>('mes');
   const [expandedStaff,   setExpandedStaff]   = useState<string | null>(null);
+  const [reportDateFrom,  setReportDateFrom]  = useState('');
+  const [reportDateTo,    setReportDateTo]    = useState('');
   const [selectedStaffName, setSelectedStaffName] = useState<string | null>(null);
   const [showModal,       setShowModal]        = useState(false);
   const [modalType,  setModalType]  = useState<ModalType>('service');
@@ -922,6 +924,7 @@ const App: React.FC = () => {
                             onClick={() => setExpandedStaff(isOpen ? null : nome)}
                             className="w-full flex items-center justify-between p-4 md:p-5 hover:bg-slate-50 transition-colors text-left"
                           >
+
                             <div className="flex items-center gap-3">
                               <div className="bg-blue-100 text-blue-600 p-2.5 rounded-xl flex-shrink-0">
                                 <UserCircle size={20} />
@@ -989,6 +992,121 @@ const App: React.FC = () => {
                       );
                     })}
                 </div>
+
+                {/* ── Tabela detalhada por mecânico ── */}
+                <div className="space-y-3">
+                  <h3 className="text-base font-black flex items-center gap-2 text-slate-800">
+                    <FileText size={18} className="text-emerald-500" /> Tabela Detalhada por Mecânico
+                  </h3>
+
+                  {/* Filtros de data */}
+                  <div className="flex flex-wrap gap-3 items-center bg-white rounded-2xl border border-slate-200 p-4 shadow-sm">
+                    <span className="text-xs font-black text-slate-400 uppercase tracking-widest">Filtrar por data:</span>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-500">De</label>
+                      <input
+                        type="date"
+                        value={reportDateFrom}
+                        onChange={e => setReportDateFrom(e.target.value)}
+                        className="p-2 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <label className="text-xs font-bold text-slate-500">Até</label>
+                      <input
+                        type="date"
+                        value={reportDateTo}
+                        onChange={e => setReportDateTo(e.target.value)}
+                        className="p-2 border border-slate-200 rounded-xl text-xs font-bold outline-none focus:border-blue-400"
+                      />
+                    </div>
+                    {(reportDateFrom || reportDateTo) && (
+                      <button
+                        onClick={() => { setReportDateFrom(''); setReportDateTo(''); }}
+                        className="text-xs font-bold text-red-400 hover:text-red-600 transition-colors"
+                      >
+                        Limpar
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Tabela agrupada por mecânico */}
+                  {(() => {
+                    const filteredByDate = servicosFiltrados.filter(s => {
+                      if (reportDateFrom && (s.date || '') < reportDateFrom) return false;
+                      if (reportDateTo && (s.date || '') > reportDateTo) return false;
+                      return true;
+                    });
+                    const grouped: Record<string, Service[]> = {};
+                    filteredByDate.forEach(s => {
+                      const n = s.staffName || 'Sem Mecânico';
+                      if (!grouped[n]) grouped[n] = [];
+                      grouped[n].push(s);
+                    });
+                    if (filteredByDate.length === 0) return (
+                      <div className="bg-white rounded-3xl border border-slate-200 p-10 text-center text-slate-400 text-sm">
+                        Nenhum serviço encontrado para o período selecionado.
+                      </div>
+                    );
+                    return Object.entries(grouped)
+                      .sort(([a], [b]) => a.localeCompare(b))
+                      .map(([nome, svcs]) => {
+                        const totalMec = svcs.reduce((a, s) => a + (s.value ?? 0), 0);
+                        const svcsSorted = [...svcs].sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+                        return (
+                          <div key={nome} className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                            {/* Nome do mecânico */}
+                            <div className="flex items-center justify-between px-5 py-3 bg-slate-800">
+                              <div className="flex items-center gap-2">
+                                <UserCircle size={16} className="text-blue-300" />
+                                <span className="font-black text-white text-sm">{nome}</span>
+                                <span className="text-slate-400 text-xs">— {svcs.length} serviço{svcs.length !== 1 ? 's' : ''}</span>
+                              </div>
+                              <span className="font-black text-emerald-400 text-sm">{formatBRL(totalMec)}</span>
+                            </div>
+                            {/* Header da tabela */}
+                            <div className="hidden md:grid grid-cols-12 gap-2 px-5 py-2 bg-slate-50 border-b border-slate-100 text-[9px] font-black text-slate-400 uppercase tracking-widest">
+                              <span className="col-span-1">Data</span>
+                              <span className="col-span-4">Serviço / Descrição</span>
+                              <span className="col-span-3">Cliente</span>
+                              <span className="col-span-2">Placa</span>
+                              <span className="col-span-1 text-right">Valor</span>
+                              <span className="col-span-1 text-right">Status</span>
+                            </div>
+                            {/* Linhas */}
+                            {svcsSorted.map(s => (
+                              <div key={s.id} className="px-4 md:px-5 py-3 border-b border-slate-50 last:border-0 hover:bg-blue-50/30 transition-colors">
+                                {/* Mobile */}
+                                <div className="md:hidden space-y-1">
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">📅 {s.date || '—'}</span>
+                                    <StatusBadge status={s.status} paymentMethod={s.paymentMethod} />
+                                  </div>
+                                  <p className="font-bold text-slate-800 text-sm">{s.description}</p>
+                                  <p className="text-xs text-slate-500">👤 {s.clientName || '—'}{s.plate ? ` · ${s.plate}` : ''}</p>
+                                  <p className="font-black text-blue-600 text-sm">{formatBRL(s.value)}</p>
+                                </div>
+                                {/* Desktop */}
+                                <div className="hidden md:grid grid-cols-12 gap-2 items-center">
+                                  <span className="col-span-1 text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded-lg text-center">{s.date || '—'}</span>
+                                  <div className="col-span-4 min-w-0">
+                                    <p className="font-bold text-slate-800 text-sm truncate">{s.description}</p>
+                                  </div>
+                                  <span className="col-span-3 text-xs text-slate-500 truncate">{s.clientName || '—'}</span>
+                                  <span className="col-span-2 text-xs font-bold text-slate-500">{s.plate || '—'}</span>
+                                  <span className="col-span-1 text-right font-black text-blue-600 text-sm">{formatBRL(s.value)}</span>
+                                  <div className="col-span-1 flex justify-end">
+                                    <StatusBadge status={s.status} paymentMethod={s.paymentMethod} />
+                                  </div>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      });
+                  })()}
+                </div>
+
               </div>
             );
           })()}
