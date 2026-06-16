@@ -162,6 +162,97 @@ const App: React.FC = () => {
   const [editingQuoteId,  setEditingQuoteId]  = useState<string | null>(null);
 
   useEffect(() => {
+    // ── Seed de demonstração (carrega só na primeira visita) ──
+    const SEED_KEY = 'autopro_seeded_v2';
+    if (!localStorage.getItem(SEED_KEY)) {
+      const today = new Date();
+      const d = (offset: number) => {
+        const dt = new Date(today); dt.setDate(dt.getDate() - offset);
+        return dt.toISOString().split('T')[0];
+      };
+      const ts = (offset: number) => {
+        const dt = new Date(today); dt.setDate(dt.getDate() - offset);
+        return dt.toISOString();
+      };
+
+      const demoStaff: Staff[] = [
+        { id: 's1', name: 'Carlos Augusto',    specialty: 'Motor e Injeção',     createdAt: ts(90) },
+        { id: 's2', name: 'Rodrigo Ferreira',  specialty: 'Freios e Suspensão',  createdAt: ts(85) },
+        { id: 's3', name: 'Leandro Souza',     specialty: 'Elétrica Automotiva', createdAt: ts(70) },
+        { id: 's4', name: 'Fábio Mendes',      specialty: 'Funilaria e Pintura', createdAt: ts(60) },
+      ];
+
+      const demoClients: ClientRecord[] = [
+        { id: 'c1', name: 'Marcos Oliveira',    phone: '(21) 99812-3344', vehicleModel: 'Chevrolet Onix 2021',   vehiclePlate: 'RJA-2E34', arrivedAt: d(5),  createdAt: ts(5)  },
+        { id: 'c2', name: 'Patrícia Mendonça',  phone: '(21) 97654-8821', vehicleModel: 'Volkswagen Polo 2022',  vehiclePlate: 'RJB-4F12', arrivedAt: d(8),  createdAt: ts(8)  },
+        { id: 'c3', name: 'André Lima',         phone: '(21) 98345-1177', vehicleModel: 'Fiat Strada 2020',      vehiclePlate: 'RJC-7H90', arrivedAt: d(12), createdAt: ts(12) },
+        { id: 'c4', name: 'Fernanda Costa',     phone: '(21) 96781-5502', vehicleModel: 'Toyota Corolla 2023',   vehiclePlate: 'RJD-9K55', arrivedAt: d(15), createdAt: ts(15) },
+        { id: 'c5', name: 'Roberto Nascimento', phone: '(21) 99234-6610', vehicleModel: 'Hyundai HB20 2021',     vehiclePlate: 'RJE-1M78', arrivedAt: d(20), createdAt: ts(20) },
+        { id: 'c6', name: 'Juliana Ramos',      phone: '(21) 98876-3345', vehicleModel: 'Chevrolet Cruze 2019',  vehiclePlate: 'RJF-3N21', arrivedAt: d(25), createdAt: ts(25) },
+        { id: 'c7', name: 'Diego Cardoso',      phone: '(21) 97112-8890', vehicleModel: 'Ford Ka 2020',          vehiclePlate: 'RJG-5P44', arrivedAt: d(30), createdAt: ts(30) },
+      ];
+
+      const demoServices: Service[] = [
+        { id: 'sv1', description: 'Revisão completa 30.000 km',       clientName: 'Marcos Oliveira',    plate: 'RJA-2E34', staffName: 'Carlos Augusto',   paymentMethod: 'Pix',      status: 'Pendente',  value: 380,  date: d(0),  createdAt: ts(0)  },
+        { id: 'sv2', description: 'Troca de pastilhas de freio',       clientName: 'Patrícia Mendonça',  plate: 'RJB-4F12', staffName: 'Rodrigo Ferreira', paymentMethod: 'Pix',      status: 'Pendente',  value: 240,  date: d(1),  createdAt: ts(1)  },
+        { id: 'sv3', description: 'Diagnóstico elétrico + bateria',    clientName: 'André Lima',         plate: 'RJC-7H90', staffName: 'Leandro Souza',    paymentMethod: 'Dinheiro', status: 'Entregue',  value: 310,  date: d(3),  createdAt: ts(3)  },
+        { id: 'sv4', description: 'Alinhamento e balanceamento',       clientName: 'Fernanda Costa',     plate: 'RJD-9K55', staffName: 'Rodrigo Ferreira', paymentMethod: 'Cartão',   status: 'Entregue',  value: 160,  date: d(4),  createdAt: ts(4)  },
+        { id: 'sv5', description: 'Troca de óleo e filtros',           clientName: 'Roberto Nascimento', plate: 'RJE-1M78', staffName: 'Carlos Augusto',   paymentMethod: 'Dinheiro', status: 'Entregue',  value: 210,  date: d(5),  createdAt: ts(5)  },
+        { id: 'sv6', description: 'Reparo sistema de injeção',         clientName: 'Juliana Ramos',      plate: 'RJF-3N21', staffName: 'Carlos Augusto',   paymentMethod: 'Pix',      status: 'Entregue',  value: 490,  date: d(7),  createdAt: ts(7)  },
+        { id: 'sv7', description: 'Funilaria – amasso porta dianteira', clientName: 'Diego Cardoso',     plate: 'RJG-5P44', staffName: 'Fábio Mendes',     paymentMethod: 'Cartão',   status: 'Entregue',  value: 850,  date: d(10), createdAt: ts(10) },
+        { id: 'sv8', description: 'Troca amortecedores traseiros',     clientName: 'Marcos Oliveira',    plate: 'RJA-2E34', staffName: 'Rodrigo Ferreira', paymentMethod: 'Pix',      status: 'Entregue',  value: 620,  date: d(12), createdAt: ts(12) },
+        { id: 'sv9', description: 'Limpeza de bicos injetores',        clientName: 'Fernanda Costa',     plate: 'RJD-9K55', staffName: 'Carlos Augusto',   paymentMethod: 'Dinheiro', status: 'Entregue',  value: 280,  date: d(14), createdAt: ts(14) },
+        { id: 'sv10', description: 'Instalação de som automotivo',     clientName: 'André Lima',         plate: 'RJC-7H90', staffName: 'Leandro Souza',    paymentMethod: 'Cartão',   status: 'Entregue',  value: 420,  date: d(18), createdAt: ts(18) },
+      ];
+
+      const demoQuotes: Quote[] = [
+        {
+          id: 'q1', clientName: 'Roberto Nascimento', vehicleModel: 'Hyundai HB20 2021', vehiclePlate: 'RJE-1M78',
+          phone: '(21) 99234-6610', email: '', address: 'Rua das Flores, 142 – Itaguaí/RJ',
+          km: '48.200', yearModel: '2021/2022', discount: 50,
+          items: [
+            { description: 'Troca de correia dentada + tensor', qty: 1, unitValue: 380 },
+            { description: 'Fluido de freio DOT 4',             qty: 1, unitValue: 65  },
+            { description: 'Mão de obra',                       qty: 1, unitValue: 200 },
+          ],
+          total: 595, status: 'Pendente',
+          observations: 'Cliente informou barulho ao frear. Verificar disco.',
+          paymentConditions: '50% entrada + saldo na retirada',
+          validDays: '7',
+          createdAt: ts(1),
+        },
+        {
+          id: 'q2', clientName: 'Juliana Ramos', vehicleModel: 'Chevrolet Cruze 2019', vehiclePlate: 'RJF-3N21',
+          phone: '(21) 98876-3345', email: 'juliana@email.com', address: 'Av. Principal, 800 – Itaguaí/RJ',
+          km: '72.500', yearModel: '2019/2020', discount: 0,
+          items: [
+            { description: 'Revisão geral 70.000 km',    qty: 1, unitValue: 420 },
+            { description: 'Troca de velas de ignição',  qty: 4, unitValue: 45  },
+            { description: 'Filtro de ar',               qty: 1, unitValue: 80  },
+          ],
+          total: 680, status: 'Aprovado',
+          observations: '',
+          paymentConditions: 'À vista no PIX',
+          validDays: '10',
+          createdAt: ts(4),
+        },
+      ];
+
+      saveCol('staff',         demoStaff);
+      saveCol('clientrecords', demoClients);
+      saveCol('services',      demoServices);
+      saveCol('quotes',        demoQuotes);
+      localStorage.setItem(SEED_KEY, '1');
+
+      setStaff(demoStaff);
+      setClientRecords(demoClients);
+      setServices(demoServices);
+      setQuotes(demoQuotes);
+      setLoading(false);
+      return;
+    }
+
+    // ── Carregamento normal ──
     const oldCustomers = getCol<Customer>('customers');
     const oldVehicles  = getCol<Vehicle>('vehicles');
     setCustomers(oldCustomers);
